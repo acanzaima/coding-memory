@@ -1,0 +1,6 @@
+<project>
+  <modules>
+    <module>demo-api</module>
+    <module>demo-biz</module>
+  </modules>
+</project>

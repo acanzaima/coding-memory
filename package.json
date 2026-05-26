@@ -1,0 +1,59 @@
+{
+  "name": "coding-memory",
+  "version": "1.0.2",
+  "description": "🧠 Turn your codebase into AI-readable skills. Scan project files, learn patterns, and generate SKILL.md memories for AI coding agents.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "coding-memory": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README-en.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "dev": "tsc --watch",
+    "test": "npm run build && node test/config-manager.test.mjs && node test/llm-client.test.mjs && node test/evidence.test.mjs && node test/learn-e2e.test.mjs",
+    "prepublishOnly": "npm test",
+    "start": "node dist/cli/main.js"
+  },
+  "keywords": [
+    "coding-memory",
+    "skill",
+    "ai",
+    "llm",
+    "code-analysis",
+    "claude-code",
+    "cursor",
+    "codex",
+    "aide",
+    "memory",
+    "knowledge-base",
+    "skill-generator",
+    "codebase-learning"
+  ],
+  "author": "acanzaima",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acanzaima/coding-memory.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "bugs": {
+    "url": "https://github.com/acanzaima/coding-memory/issues"
+  },
+  "homepage": "https://acanzaima.github.io/coding-memory/",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.7.0"
+  }
+}
