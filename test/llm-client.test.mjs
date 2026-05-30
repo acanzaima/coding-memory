@@ -38,6 +38,17 @@ try {
   });
   assert.equal(deepseek.ok, true);
   assert.equal(requests[2].body.thinking?.type, "disabled");
+
+  const customHeaders = await testConnection({
+    provider: "openai-compatible",
+    model: "wandb-test",
+    apiKey: "wandb-key",
+    baseURL: url,
+    headers: { "OpenAI-Project": "team/project" },
+  });
+  assert.equal(customHeaders.ok, true);
+  assert.equal(requests[3].headers.authorization, "Bearer wandb-key");
+  assert.equal(requests[3].headers["openai-project"], "team/project");
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }

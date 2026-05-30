@@ -12,6 +12,8 @@ export interface LLMConfig {
   maxTokens?: number;
   /** Provider-specific extra body params (thinking, reasoning_effort, etc.) */
   options?: Record<string, unknown>;
+  /** Provider-specific extra HTTP headers */
+  headers?: Record<string, string>;
 }
 
 /** A single learned skill entry */

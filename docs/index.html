@@ -605,17 +605,19 @@ coding-memory learn -p .</code></pre>
           <div class="section-head">
             <h2>模型配置保持开放</h2>
             <p class="section-note">
-              内置 31+ 个 OpenAI-compatible 提供商预设，也允许自定义 endpoint。用户的 <code>options</code> 会原样传递给模型。
+              内置常用模型服务预设，也支持代理网关、私有服务和第三方兼容接口。高级参数会原样传递给模型。
             </p>
           </div>
           <ul class="pill-list" aria-label="provider categories">
             <li>官方直连</li>
             <li>中国主流</li>
             <li>聚合与高速推理</li>
-            <li>云平台</li>
             <li>本地/自托管</li>
-            <li>自定义接口</li>
+            <li>自定义连接</li>
           </ul>
+          <p class="section-note" style="margin-top: 18px; max-width: 860px;">
+            默认列表优先提供配置项较少、拿到 API key 后就容易跑通的服务。企业云、私有部署和网关服务通常有自己的地址、模型名和账号规则，可以通过自定义连接填写；豆包这类需要控制台模型或 endpoint ID 的服务，也会在配置时提示手动填写。
+          </p>
         </div>
       </section>
 

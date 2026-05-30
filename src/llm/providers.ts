@@ -32,9 +32,10 @@ export const providerPresets: ProviderPreset[] = [
     name: 'OpenAI',
     provider: 'openai',
     models: [
-      { id: 'gpt-5.5', name: 'GPT-5.5', description: 'Latest flagship' },
-      { id: 'gpt-5.4', name: 'GPT-5.4', description: 'Previous flagship' },
+      { id: 'gpt-5.5', name: 'GPT-5.5', description: 'Latest frontier' },
+      { id: 'gpt-5.4', name: 'GPT-5.4', description: 'More affordable frontier' },
       { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', description: 'Lighter & faster' },
+      { id: 'gpt-5.4-nano', name: 'GPT-5.4 Nano', description: 'Lowest latency' },
       { id: 'gpt-4.1', name: 'GPT-4.1', description: '1M context' },
       { id: 'gpt-4o', name: 'GPT-4o', description: 'Multimodal' },
       { id: 'o3', name: 'o3', description: 'Deep reasoning' },
@@ -47,8 +48,8 @@ export const providerPresets: ProviderPreset[] = [
     provider: 'anthropic',
     models: [
       { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Best balance' },
-      { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', description: 'Most capable' },
-      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fast' },
+      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', description: 'Most capable' },
+      { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', description: 'Fast' },
     ],
   },
   {
@@ -56,10 +57,9 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Google Gemini',
     provider: 'openai-compatible',
     models: [
-      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', description: 'Latest flagship' },
-      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Fast' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Previous flagship' },
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Previous fast' },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Stable flagship' },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast' },
+      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', description: 'Low latency' },
     ],
   },
   {
@@ -80,8 +80,8 @@ export const providerPresets: ProviderPreset[] = [
     name: 'xAI Grok',
     provider: 'openai-compatible',
     models: [
-      { id: 'grok-4', name: 'Grok 4', description: 'Latest flagship' },
-      { id: 'grok-code-fast-1', name: 'Grok Code Fast', description: 'Code-specialized' },
+      { id: 'grok-4.3', name: 'Grok 4.3', description: 'Latest flagship' },
+      { id: 'grok-4', name: 'Grok 4', description: 'Legacy alias redirects to latest' },
     ],
   },
   {
@@ -89,9 +89,9 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Mistral AI',
     provider: 'openai-compatible',
     models: [
-      { id: 'devstral-2512', name: 'Devstral', description: 'Agentic coding' },
-      { id: 'mistral-large-2512', name: 'Mistral Large', description: 'Flagship' },
-      { id: 'codestral-2501', name: 'Codestral', description: 'Code-specialized' },
+      { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Flagship chat' },
+      { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Fast general chat' },
+      { id: 'codestral-latest', name: 'Codestral', description: 'Code-specialized' },
     ],
   },
   {
@@ -99,9 +99,9 @@ export const providerPresets: ProviderPreset[] = [
     name: 'OpenRouter',
     provider: 'openai-compatible',
     models: [
-      { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5', description: 'Via OpenRouter' },
-      { id: 'openai/gpt-5.4', name: 'OpenAI GPT-5.4', description: 'Via OpenRouter' },
-      { id: 'google/gemini-3-pro', name: 'Gemini 3 Pro', description: 'Via OpenRouter' },
+      { id: 'anthropic/claude-sonnet-4.6', name: 'Claude Sonnet 4.6', description: 'Via OpenRouter' },
+      { id: 'openai/gpt-5.5', name: 'OpenAI GPT-5.5', description: 'Via OpenRouter' },
+      { id: 'google/gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Via OpenRouter' },
     ],
   },
   {
@@ -109,8 +109,8 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Groq',
     provider: 'openai-compatible',
     models: [
-      { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', description: 'Ultra-fast' },
       { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', description: 'Fast OSS model' },
+      { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B', description: 'Fast lightweight OSS model' },
     ],
   },
   {
@@ -118,7 +118,11 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Together AI',
     provider: 'openai-compatible',
     models: [
-      { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', name: 'Llama 4 Maverick', description: 'Meta flagship' },
+      { id: 'zai-org/GLM-5.1', name: 'GLM-5.1', description: 'Agentic coding' },
+      { id: 'moonshotai/Kimi-K2.6', name: 'Kimi K2.6', description: 'Agentic multimodal' },
+      { id: 'deepseek-ai/DeepSeek-V4-Pro', name: 'DeepSeek V4 Pro', description: 'Reasoning and coding' },
+      { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', description: 'Open-weight reasoning' },
+      { id: 'Qwen/Qwen3-Coder-480B-A35B-Instruct', name: 'Qwen3 Coder 480B', description: 'Agentic coding' },
     ],
   },
   {
@@ -127,7 +131,6 @@ export const providerPresets: ProviderPreset[] = [
     provider: 'openai-compatible',
     models: [
       { id: 'accounts/fireworks/models/kimi-k2p5', name: 'Kimi K2.5', description: 'Agentic' },
-      { id: 'accounts/fireworks/models/glm-5', name: 'GLM-5', description: 'Reasoning' },
     ],
   },
   {
@@ -135,7 +138,7 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Cerebras',
     provider: 'openai-compatible',
     models: [
-      { id: 'zai-glm-4.7', name: 'GLM-4.7', description: '~1000 tok/s' },
+      { id: 'gpt-oss-120b', name: 'GPT-OSS 120B', description: 'Production model' },
     ],
   },
   {
@@ -143,35 +146,9 @@ export const providerPresets: ProviderPreset[] = [
     name: 'Weights & Biases',
     provider: 'openai-compatible',
     models: [
-      { id: 'zai-org/GLM-5-FP8', name: 'GLM-5', description: 'Agentic coding' },
-    ],
-  },
-
-  // ═══════════════════════════════════════════════════════════
-  // Cloud platforms
-  // ═══════════════════════════════════════════════════════════
-  {
-    id: 'azure',
-    name: 'Azure OpenAI',
-    provider: 'openai-compatible',
-    models: [
-      { id: 'gpt-5.5', name: 'GPT-5.5', description: 'Azure deployment' },
-    ],
-  },
-  {
-    id: 'bedrock',
-    name: 'AWS Bedrock',
-    provider: 'openai-compatible',
-    models: [
-      { id: 'anthropic.claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Via Bedrock' },
-    ],
-  },
-  {
-    id: 'vertex',
-    name: 'Google Vertex AI',
-    provider: 'openai-compatible',
-    models: [
-      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', description: 'Via Vertex' },
+      { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', description: 'Documented W&B model' },
+      { id: 'deepseek-ai/DeepSeek-R1-0528', name: 'DeepSeek R1', description: 'Reasoning' },
+      { id: 'meta-llama/Llama-4-Scout-17B-16E-Instruct', name: 'Llama 4 Scout', description: 'Fast' },
     ],
   },
 
@@ -194,8 +171,6 @@ export const providerPresets: ProviderPreset[] = [
     provider: 'openai-compatible',
     models: [
       { id: 'qwen3-coder-plus', name: 'Qwen3 Coder Plus', description: '旗舰代码模型' },
-      { id: 'qwen3-235b-a22b', name: 'Qwen3 235B MoE', description: '旗舰' },
-      { id: 'qwen3-coder-480b-a35b-instruct', name: 'Qwen3 Coder 480B', description: '超大代码模型' },
     ],
   },
   {
@@ -204,7 +179,6 @@ export const providerPresets: ProviderPreset[] = [
     provider: 'openai-compatible',
     models: [
       { id: 'kimi-k2.5', name: 'Kimi K2.5', description: '最新旗舰，支持视觉' },
-      { id: 'kimi-k2-0905-preview', name: 'Kimi K2', description: 'Agentic coding' },
     ],
   },
   {
@@ -213,6 +187,7 @@ export const providerPresets: ProviderPreset[] = [
     provider: 'openai-compatible',
     models: [
       { id: 'MiniMax-M2.7', name: 'MiniMax M2.7', description: '最新旗舰' },
+      { id: 'MiniMax-M2.7-highspeed', name: 'MiniMax M2.7 Highspeed', description: '高速版本' },
       { id: 'MiniMax-M2.5', name: 'MiniMax M2.5', description: '前代旗舰' },
     ],
   },
@@ -220,23 +195,8 @@ export const providerPresets: ProviderPreset[] = [
     id: 'doubao',
     name: '字节豆包 (ByteDance)',
     provider: 'openai-compatible',
-    models: [
-      { id: 'doubao-1-5-pro-256k-250115', name: '豆包 1.5 Pro 256K', description: '旗舰' },
-    ],
+    models: [],
   },
-
-  // ═══════════════════════════════════════════════════════════
-  // Other
-  // ═══════════════════════════════════════════════════════════
-  {
-    id: 'cohere',
-    name: 'Cohere',
-    provider: 'openai-compatible',
-    models: [
-      { id: 'command-r7b', name: 'Command R7B', description: 'Latest' },
-    ],
-  },
-
   // ═══════════════════════════════════════════════════════════
   // Local / Self-hosted
   // ═══════════════════════════════════════════════════════════
@@ -272,11 +232,9 @@ export const providerPresets: ProviderPreset[] = [
   // ═══════════════════════════════════════════════════════════
   {
     id: 'custom',
-    name: '自定义 (OpenAI-compatible)',
+    name: '自定义兼容接口 (OpenAI-compatible)',
     provider: 'custom',
-    models: [
-      { id: 'custom', name: 'Custom Model', description: 'Enter model name & base URL' },
-    ],
+    models: [],
   },
 ]
 
@@ -297,19 +255,13 @@ export const defaultBaseURLs: Record<string, string> = {
   together:   'https://api.together.xyz/v1',
   fireworks:  'https://api.fireworks.ai/inference/v1',
   cerebras:   'https://api.cerebras.ai/v1',
-  wandb:      'https://api.wandb.ai/v1',
-
-  azure:      'https://YOUR_RESOURCE.openai.azure.com/openai',
-  bedrock:    'https://bedrock-runtime.REGION.amazonaws.com',
-  vertex:     'https://REGION-aiplatform.googleapis.com/v1',
+  wandb:      'https://api.inference.wandb.ai/v1',
 
   zhipu:      'https://open.bigmodel.cn/api/paas/v4',
   qwen:       'https://dashscope.aliyuncs.com/compatible-mode/v1',
   moonshot:   'https://api.moonshot.cn/v1',
-  minimax:    'https://api.minimax.chat/v1',
+  minimax:    'https://api.minimax.io/v1',
   doubao:     'https://ark.cn-beijing.volces.com/api/v3',
-
-  cohere:     'https://api.cohere.com/v2',
 
   ollama:     'http://localhost:11434/v1',
   lmstudio:   'http://localhost:1234/v1',
@@ -336,15 +288,11 @@ export function getEnvVarName(presetId: string): string {
     fireworks:  'FIREWORKS_API_KEY',
     cerebras:   'CEREBRAS_API_KEY',
     wandb:      'WANDB_API_KEY',
-    azure:      'AZURE_OPENAI_API_KEY',
-    bedrock:    'AWS_ACCESS_KEY_ID',
-    vertex:     'GOOGLE_API_KEY',
     zhipu:      'ZHIPU_API_KEY',
     qwen:       'DASHSCOPE_API_KEY',
     moonshot:   'MOONSHOT_API_KEY',
     minimax:    'MINIMAX_API_KEY',
     doubao:     'ARK_API_KEY',
-    cohere:     'COHERE_API_KEY',
     ollama:     'OLLAMA_API_KEY',
     lmstudio:   'LM_STUDIO_API_KEY',
     vllm:       'VLLM_API_KEY',

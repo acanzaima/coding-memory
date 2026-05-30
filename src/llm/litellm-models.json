@@ -1,6 +1,6 @@
 {
   "updated": "2026-05-18T09:28:42.857Z",
-  "total": 94,
+  "total": 87,
   "providers": {
     "cerebras": {
       "name": "Cerebras",
@@ -106,39 +106,6 @@
         {
           "model": "claude-haiku-4-5-20251001",
           "context": "200K"
-        }
-      ]
-    },
-    "cohere": {
-      "name": "Cohere",
-      "models": [
-        {
-          "model": "command-a-03-2025",
-          "context": "256K"
-        },
-        {
-          "model": "command-r",
-          "context": "128K"
-        },
-        {
-          "model": "command-r-08-2024",
-          "context": "128K"
-        },
-        {
-          "model": "command-r-plus",
-          "context": "128K"
-        },
-        {
-          "model": "command-r-plus-08-2024",
-          "context": "128K"
-        },
-        {
-          "model": "command-r7b-12-2024",
-          "context": "128K"
-        },
-        {
-          "model": "command-light",
-          "context": "4K"
         }
       ]
     },

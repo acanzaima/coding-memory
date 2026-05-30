@@ -113,12 +113,13 @@ coding-memory config --rm deepseek-v3
 
 | 分类 | 提供商 |
 |------|--------|
-| **官方直连** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, xAI Grok, Mistral AI, Cohere |
+| **官方直连** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, xAI Grok, Mistral AI |
 | **中国主流** | 智谱 GLM, 通义千问 Qwen, 月之暗面 Kimi, MiniMax, 豆包 |
 | **聚合与高速推理** | OpenRouter, Groq, Together AI, Fireworks AI, Cerebras, Weights & Biases |
-| **云平台** | Azure OpenAI, AWS Bedrock, Google Vertex AI |
 | **本地/自托管** | Ollama, LM Studio, vLLM / SGLang |
-| **自定义** | 任意 OpenAI 兼容接口 |
+| **自定义连接** | 代理网关、私有服务或第三方兼容接口，自行填写 Base URL 与模型 ID |
+
+默认列表优先提供开箱即用、配置项较少的常见服务。企业云、私有部署、代理网关或第三方兼容服务通常会有自己的地址、模型名和账号规则，请选择“自定义连接”并按服务方提供的信息填写。
 
 ### `coding-memory use <name>`
 
@@ -315,7 +316,7 @@ coding-memory config --dir D:/AI/memories
 }
 ```
 
-`options` 是 provider-specific 扩展区，例如 `thinking`、`reasoning_effort` 等；coding-memory 只会透传，不会在 `learn` 中替你改写。
+`options` 是模型服务的高级参数扩展区，例如 `thinking`、`reasoning_effort` 等；coding-memory 只会透传，不会在 `learn` 中替你改写。少数服务需要额外请求头，可在同一条模型配置里添加 `headers`。
 
 ### `lock.json` — Skill 追踪
 

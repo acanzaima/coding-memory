@@ -35,7 +35,7 @@ export async function chatCompletion(
   let lastEmpty: ChatCompletionResponse | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const body = buildChatBody(config, options, attempt);
-    const data = await callWithRetry(url, config.apiKey, body);
+    const data = await callWithRetry(url, config, body);
 
     const content = data.choices?.[0]?.message?.content;
     if (content) return content;
@@ -139,7 +139,7 @@ function describeEmptyResponse(data: ChatCompletionResponse): string {
 
 async function callWithRetry(
   url: string,
-  apiKey: string,
+  config: LLMConfig,
   body: Record<string, unknown>,
 ): Promise<ChatCompletionResponse> {
   const payload = JSON.stringify(body);
@@ -149,7 +149,7 @@ async function callWithRetry(
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: openAICompatibleHeaders(apiKey),
+        headers: openAICompatibleHeaders(config),
         body: payload,
       });
 
@@ -226,6 +226,7 @@ async function anthropicCompletion(
       "Content-Type": "application/json",
       "anthropic-version": "2023-06-01",
       ...(config.apiKey ? { "x-api-key": config.apiKey } : {}),
+      ...(config.headers || {}),
     },
     body: JSON.stringify(body),
   });
@@ -276,10 +277,11 @@ function anthropicMessagesURL(baseURL: string): string {
   return `${trimmed}/v1/messages`;
 }
 
-function openAICompatibleHeaders(apiKey: string): Record<string, string> {
+function openAICompatibleHeaders(config: LLMConfig): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    ...(config.headers || {}),
   };
 }
 
@@ -352,7 +354,7 @@ export async function testConnection(
 
     const response = await fetch(url, {
       method: "POST",
-      headers: openAICompatibleHeaders(config.apiKey),
+      headers: openAICompatibleHeaders(config),
       body: JSON.stringify(body),
     });
 

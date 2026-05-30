@@ -1,6 +1,6 @@
 {
   "name": "coding-memory",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "🧠 Turn your codebase into AI-readable skills. Scan project files, learn patterns, and generate SKILL.md memories for AI coding agents.",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "dev": "tsc --watch",
-    "test": "npm run build && node test/config-manager.test.mjs && node test/llm-client.test.mjs && node test/evidence.test.mjs && node test/learn-e2e.test.mjs",
+    "test": "npm run build && node test/config-manager.test.mjs && node test/providers.test.mjs && node test/llm-client.test.mjs && node test/evidence.test.mjs && node test/learn-e2e.test.mjs",
     "prepublishOnly": "npm test",
     "start": "node dist/cli/main.js"
   },

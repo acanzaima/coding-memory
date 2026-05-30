@@ -77,12 +77,13 @@ Built-in provider presets are grouped by access mode rather than subjective mode
 
 | Category | Providers |
 |----------|-----------|
-| **Official Direct** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, xAI Grok, Mistral AI, Cohere |
+| **Official Direct** | OpenAI, Anthropic Claude, Google Gemini, DeepSeek, xAI Grok, Mistral AI |
 | **China Mainstream** | Zhipu GLM, Qwen, Moonshot Kimi, MiniMax, Doubao |
 | **Aggregators And Fast Inference** | OpenRouter, Groq, Together AI, Fireworks AI, Cerebras, Weights & Biases |
-| **Cloud Platforms** | Azure OpenAI, AWS Bedrock, Google Vertex AI |
 | **Local/Self-hosted** | Ollama, LM Studio, vLLM / SGLang |
-| **Custom** | Any OpenAI-compatible endpoint |
+| **Custom Connection** | Proxy gateways, private services, or third-party compatible APIs; enter your own Base URL and model ID |
+
+The default list focuses on common services that are easy to configure out of the box. Enterprise cloud deployments, private services, proxy gateways, and third-party compatible APIs often use their own address, model names, and account rules; choose Custom Connection and fill in the values from your provider.
 
 ### `coding-memory use <name>`
 
@@ -171,7 +172,7 @@ coding-memory config --dir D:/AI/memories
 }
 ```
 
-`options` is the provider-specific extension area for fields such as `thinking` or `reasoning_effort`; coding-memory passes it through during `learn` and does not rewrite it.
+`options` is the advanced parameter area for fields such as `thinking` or `reasoning_effort`; coding-memory passes it through during `learn` and does not rewrite it. A few services require extra request headers; add them as `headers` in the same model entry.
 
 Example `models.json` entry:
 

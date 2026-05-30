@@ -34,7 +34,6 @@ const PROVIDER_MAP = {
   together_ai:      { id: 'together',  name: 'Together AI' },
   fireworks_ai:     { id: 'fireworks', name: 'Fireworks AI' },
   cerebras:         { id: 'cerebras',  name: 'Cerebras' },
-  cohere_chat:      { id: 'cohere',    name: 'Cohere' },
 }
 
 /** Filter out noise: fine-tuned, embedding, moderation, old snapshots */

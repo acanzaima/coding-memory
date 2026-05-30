@@ -59,7 +59,13 @@ async function interactiveSetup(): Promise<void> {
 
   // Step 1 — Provider (arrow-key selection, uses its own readline)
   const providerNames = providerPresets.map(p => p.name)
-  const providerDescs = providerPresets.map(p => `model e.g. ${p.models[0]?.id || 'custom'}`)
+  const providerDescs = providerPresets.map(p =>
+    requiresBaseURL(p.id)
+      ? 'OpenAI-compatible endpoint, enter model and base URL'
+      : p.models[0]?.id
+        ? `model e.g. ${p.models[0].id}`
+        : 'enter the model or endpoint ID from your provider console',
+  )
   const idx = await select('Choose a provider:', providerNames, providerDescs)
   if (idx < 0) return
   const provider = providerPresets[idx]
@@ -72,7 +78,11 @@ async function interactiveSetup(): Promise<void> {
   const defaultModel = provider.models[0]?.id || ''
   const modelHint = defaultModel ? ` ${c.dim}[${defaultModel}]${c.reset}` : ''
   console.log(`${c.bold}  Step 2: Model name${c.reset}`)
-  console.log(`  ${c.dim}Enter the model identifier (e.g. gpt-4o, deepseek-chat)${c.reset}\n`)
+  if (!defaultModel) {
+    console.log(`  ${c.dim}Enter the exact model or endpoint ID shown in your provider console.${c.reset}\n`)
+  } else {
+    console.log(`  ${c.dim}Enter the model identifier (e.g. gpt-4o, deepseek-chat)${c.reset}\n`)
+  }
 
   let model = await ask(rl, `  ${c.yellow}Model${c.reset}${modelHint}: `)
   if (!model) {
@@ -114,9 +124,16 @@ async function interactiveSetup(): Promise<void> {
   console.log(`  ${c.green}${icon.ok}${c.reset} ${finalName}\n`)
 
   let baseURL = getBaseURL(provider.id, provider.provider)
-  if (provider.id === 'custom') {
-    baseURL = await ask(rl, `  ${c.yellow}Base URL${c.reset} ${c.dim}[https://api.openai.com/v1]${c.reset}: `) || 'https://api.openai.com/v1'
+  if (requiresBaseURL(provider.id)) {
+    console.log(`${c.bold}  Base URL${c.reset}`)
+    console.log(`  ${c.dim}Enter the OpenAI-compatible endpoint, usually ending with /v1.${c.reset}`)
+    baseURL = await ask(rl, `  ${c.yellow}Base URL${c.reset}: `)
+    if (!baseURL) { console.log(`  ${c.red}Base URL is required.${c.reset}`); rl.close(); return }
+    console.log(`  ${c.green}${icon.ok}${c.reset} ${baseURL}\n`)
   }
+
+  const headers = await extraHeaders(provider.id, rl)
+  if (headers === null) { rl.close(); return }
 
   const llmConfig: LLMConfig = {
     provider: provider.provider,
@@ -126,6 +143,7 @@ async function interactiveSetup(): Promise<void> {
     temperature: 0.3,
     maxTokens: 4096,
     options: defaultOptions(provider.id),
+    headers,
   }
   upsertModel(finalName, llmConfig)
 
@@ -133,6 +151,10 @@ async function interactiveSetup(): Promise<void> {
   console.log(`   ${c.dim}Name:     ${c.reset}${c.cyan}${finalName}${c.reset}`)
   console.log(`   ${c.dim}Provider: ${c.reset}${provider.name}`)
   console.log(`   ${c.dim}Model:    ${c.reset}${model}`)
+  console.log(`   ${c.dim}Base URL: ${c.reset}${baseURL || '(default)'}`)
+  if (llmConfig.headers && Object.keys(llmConfig.headers).length > 0) {
+    console.log(`   ${c.dim}Headers:  ${c.reset}${Object.keys(llmConfig.headers).join(', ')}`)
+  }
   console.log(`   ${c.dim}Options:  ${c.reset}${JSON.stringify(llmConfig.options)} ${c.dim}(edit ~/.coding-memory/models.json for extra parameters)${c.reset}`)
 
   if (existing.length > 0) {
@@ -197,4 +219,25 @@ function defaultOptions(providerId: string): Record<string, unknown> {
     }
   }
   return {}
+}
+
+async function extraHeaders(
+  providerId: string,
+  rl: ReturnType<typeof createInterface>,
+): Promise<Record<string, string> | undefined | null> {
+  if (providerId !== 'wandb') return undefined
+
+  console.log(`${c.bold}  W&B project${c.reset}`)
+  console.log(`  ${c.dim}Enter the W&B entity/project used by Inference, for example my-team/coding-memory.${c.reset}`)
+  const project = await ask(rl, `  ${c.yellow}Project${c.reset}: `)
+  if (!project) {
+    console.log(`  ${c.red}W&B project is required for this preset.${c.reset}`)
+    return null
+  }
+  console.log(`  ${c.green}${icon.ok}${c.reset} ${project}\n`)
+  return { 'OpenAI-Project': project }
+}
+
+function requiresBaseURL(providerId: string): boolean {
+  return providerId === 'custom'
 }

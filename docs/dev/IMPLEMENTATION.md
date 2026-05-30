@@ -79,6 +79,27 @@ coding-memory config --dir D:/AI/memories
 
 该设置会影响 LLM prompt、`OVERVIEW.md`、`EVIDENCE.md`、`SKILL.md` 和 `QUALITY.md`。`EVIDENCE.json` 保持结构化数据，不做翻译。
 
+## 模型提供商配置
+
+模型配置由三层协作完成：
+
+- `src/llm/providers.ts` 定义可在交互式 `coding-memory config` 中选择的 provider preset、默认模型、默认 Base URL 和环境变量名。
+- `src/commands/config.ts` 负责配置向导：选择 provider、填写模型 ID、API key、必要 Base URL，以及少数 provider 需要的额外字段。
+- `src/llm/client.ts` 负责实际请求。当前客户端直接支持 OpenAI-compatible Chat Completions、Anthropic Messages API、Ollama / 本地兼容接口。
+
+提供商预设遵循保守原则：
+
+- 只把当前客户端能按上述协议直接调用的服务作为一键预设。
+- Azure OpenAI、AWS Bedrock、Google Vertex AI、Cohere 等需要专用路径、专用鉴权或非 OpenAI Chat Completions 兼容请求的服务，不作为一键预设；如用户通过代理网关、私有服务或第三方兼容接口暴露为 OpenAI-compatible endpoint，应选择“自定义兼容接口”。
+- 默认模型优先选择官方文档、平台模型列表或稳定公开接口中能确认的模型 ID；容易过期的快照、已下线模型和账号强绑定 endpoint 不作为默认值。
+- 豆包 Ark 保留默认 Base URL，但模型参数通常来自控制台 endpoint/model ID，因此预设不提供默认模型，配置时要求用户手填。
+- W&B Inference 需要项目维度 header，配置向导会收集 entity/project，并通过 `headers.OpenAI-Project` 写入模型配置。
+
+`LLMConfig` 中有两个扩展点：
+
+- `options`：透传到请求 body，用于 `thinking`、`reasoning_effort` 等 provider-specific 参数。
+- `headers`：透传到 HTTP 请求头，用于 W&B 这类需要额外 header 的兼容服务。
+
 ## 产物治理
 
 LLM 生成后，`learn.ts` 会运行治理流程：
@@ -126,6 +147,8 @@ npm test
 
 它包含：
 
+- provider 预设与 Base URL 测试；
+- provider-specific headers 透传测试；
 - 确定性 Evidence 测试；
 - Vue3 与 Spring Boot fixture 扫描；
 - `QUALITY.md` Evidence 指标测试；
