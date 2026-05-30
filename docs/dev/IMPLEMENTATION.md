@@ -1,6 +1,6 @@
 # coding-memory 实现说明
 
-本文档面向维护者，说明 coding-memory 的内部实现。它位于 `docs/dev/`，不会包含在 npm 发布包中；`package.json` 的 `files` 只发布 `dist`、`README.md`、`README-en.md` 和 `LICENSE`。
+本文档说明 coding-memory 的实现原理与关键设计细节。它位于 `docs/dev/`，作为公开仓库中的设计说明保留；npm 发布包只包含 `dist`、`README.md`、`README-en.md` 和 `LICENSE`。
 
 ## 整体流水线
 
