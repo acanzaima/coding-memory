@@ -15,6 +15,27 @@ export interface ChatCompletionOptions {
   temperature?: number;
   maxTokens?: number;
   responseFormat?: "text" | "json_object";
+  diagnostics?: ChatCompletionDiagnostics;
+}
+
+export interface ChatCompletionDiagnostics {
+  phase?: string;
+  onEvent?: (event: ChatCompletionDiagnosticEvent) => void;
+}
+
+export interface ChatCompletionDiagnosticEvent {
+  phase: string;
+  provider: LLMConfig["provider"];
+  model: string;
+  attempt: number;
+  maxTokens: number;
+  requestChars: number;
+  responseChars: number;
+  ok: boolean;
+  finishReason?: string;
+  usage?: ChatCompletionUsage;
+  emptyReason?: string;
+  error?: string;
 }
 
 /**
@@ -35,12 +56,37 @@ export async function chatCompletion(
   let lastEmpty: ChatCompletionResponse | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const body = buildChatBody(config, options, attempt);
-    const data = await callWithRetry(url, config, body);
+    let data: ChatCompletionResponse;
+    try {
+      data = await callWithRetry(url, config, body);
+    } catch (err) {
+      reportDiagnostic(config, options, body, attempt, {
+        ok: false,
+        responseChars: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     const content = data.choices?.[0]?.message?.content;
-    if (content) return content;
+    if (content) {
+      reportDiagnostic(config, options, body, attempt, {
+        ok: true,
+        responseChars: content.length,
+        finishReason: data.choices?.[0]?.finish_reason,
+        usage: data.usage,
+      });
+      return content;
+    }
 
     lastEmpty = data;
+    reportDiagnostic(config, options, body, attempt, {
+      ok: false,
+      responseChars: 0,
+      finishReason: data.choices?.[0]?.finish_reason,
+      usage: data.usage,
+      emptyReason: describeEmptyResponse(data),
+    });
     if (!shouldRetryEmptyResponse(data, attempt)) break;
     await sleep(500 * (attempt + 1));
   }
@@ -60,15 +106,57 @@ interface ChatCompletionResponse {
       reasoning?: string | null;
     };
   }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
+  usage?: ChatCompletionUsage;
+}
+
+interface ChatCompletionUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  reasoning_tokens?: number;
+  completion_tokens_details?: {
     reasoning_tokens?: number;
-    completion_tokens_details?: {
-      reasoning_tokens?: number;
-    };
   };
+}
+
+function reportDiagnostic(
+  config: LLMConfig,
+  options: ChatCompletionOptions,
+  body: Record<string, unknown>,
+  attempt: number,
+  result: {
+    ok: boolean;
+    responseChars: number;
+    finishReason?: string;
+    usage?: ChatCompletionUsage;
+    emptyReason?: string;
+    error?: string;
+  },
+): void {
+  const onEvent = options.diagnostics?.onEvent;
+  if (!onEvent) return;
+  const maxTokens =
+    typeof body.max_tokens === "number"
+      ? body.max_tokens
+      : options.maxTokens ?? config.maxTokens ?? 4096;
+  try {
+    onEvent({
+      phase: options.diagnostics?.phase || "unknown",
+      provider: config.provider,
+      model: config.model,
+      attempt: attempt + 1,
+      maxTokens,
+      requestChars: JSON.stringify(body.messages || []).length,
+      responseChars: result.responseChars,
+      ok: result.ok,
+      finishReason: result.finishReason,
+      usage: result.usage,
+      emptyReason: result.emptyReason,
+      error: result.error,
+    });
+  } catch {
+    // Diagnostics must never affect LLM execution.
+  }
 }
 
 function buildChatBody(
@@ -220,19 +308,34 @@ async function anthropicCompletion(
     body.temperature = options.temperature;
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "anthropic-version": "2023-06-01",
-      ...(config.apiKey ? { "x-api-key": config.apiKey } : {}),
-      ...(config.headers || {}),
-    },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+        ...(config.apiKey ? { "x-api-key": config.apiKey } : {}),
+        ...(config.headers || {}),
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    reportDiagnostic(config, options, body, 0, {
+      ok: false,
+      responseChars: 0,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
+    reportDiagnostic(config, options, body, 0, {
+      ok: false,
+      responseChars: 0,
+      error: `Anthropic API error (${response.status}): ${errorText.slice(0, 500)}`,
+    });
     throw new Error(
       `Anthropic API error (${response.status}): ${errorText.slice(0, 500)}`,
     );
@@ -244,9 +347,18 @@ async function anthropicCompletion(
 
   const textContent = data.content?.find((c) => c.type === "text");
   if (!textContent?.text) {
+    reportDiagnostic(config, options, body, 0, {
+      ok: false,
+      responseChars: 0,
+      emptyReason: "Anthropic returned empty response",
+    });
     throw new Error("Anthropic returned empty response");
   }
 
+  reportDiagnostic(config, options, body, 0, {
+    ok: true,
+    responseChars: textContent.text.length,
+  });
   return textContent.text;
 }
 

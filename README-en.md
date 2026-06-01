@@ -112,11 +112,41 @@ coding-memory learn starry-coding -p ./my-app
 coding-memory learn -p ./my-app -f "Bootstrap flow"
 coding-memory learn -p ./my-app --type react
 coding-memory learn -p ./my-app --dry-run
+coding-memory learn -p ./my-app --resume
 ```
 
 `--focus` is an evidence-first inspection lens. It is useful when you want coding-memory to look more carefully at a topic such as bootstrap flow, auth, or error handling. It does not override deterministic evidence: if matching code exists, the output cites concrete files/snippets; if it does not, the topic is marked as no existing pattern or moved to verification.
 
 Repeated `learn` runs update the same `skillName/projectType` entry. Existing L1-L8 content is injected by matching layer: generating L2 sees the previous L2, generating L7 sees the previous L7, and so on. The model is instructed to preserve still-supported content, add newly observed patterns, and remove or downgrade stale/speculative material.
+
+`--resume` continues the latest compatible learn run from saved checkpoints. Each run records `manifest.json`, layer checkpoints, and `calls.jsonl` diagnostics under `~/.coding-memory/.runs/`.
+
+### `coding-memory inspect`
+
+Inspect generated `MANIFEST.json`, `TRACE.json`, and verification status.
+
+```bash
+coding-memory inspect my-skill
+coding-memory inspect my-skill --type vue3 --layer L4
+```
+
+### `coding-memory verify`
+
+Run deterministic local verification over generated artifacts.
+
+```bash
+coding-memory verify my-skill
+coding-memory verify my-skill --strict
+```
+
+### `coding-memory diff`
+
+Compare the latest generated `TRACE.json` with the previous learn snapshot.
+
+```bash
+coding-memory diff my-skill
+coding-memory diff my-skill --type vue3
+```
 
 ### `coding-memory status`
 
@@ -148,6 +178,8 @@ coding-memory status
 ```
 
 `SKILL.md` is the compact AI entry point. The reference files keep detailed layer evidence and generated conventions.
+
+Each L1-L8 layer follows a stable schema: `Scope`, `Rules`, `Templates`, `Anti-patterns`, `Evidence`, and `Gaps`. New structured sidecars are written beside the markdown: `MANIFEST.json` indexes layer topics and counts, `TRACE.json` maps extracted rules/templates to evidence where possible, and `VERIFY.json` stores the local audit result.
 
 ## Configuration
 

@@ -411,3 +411,16 @@ npx skills add ~/.coding-memory/starry-coding
 ## 📄 许可证
 
 [MIT](LICENSE)
+
+---
+
+## 结构化审计与恢复
+
+```bash
+coding-memory learn -p ./my-app --resume
+coding-memory inspect my-skill --type vue3 --layer L4
+coding-memory verify my-skill --strict
+coding-memory diff my-skill --type vue3
+```
+
+`--resume` 会从 `~/.coding-memory/.runs/` 恢复最近一次兼容的 learn run。每次 run 会保存阶段 checkpoint、L1-L8 层 checkpoint 和 `calls.jsonl` LLM 调用诊断。每个 L1-L8 层现在稳定包含 `Scope` / `Rules` / `Templates` / `Anti-patterns` / `Evidence` / `Gaps` 六段；`MANIFEST.json` 提供索引，`TRACE.json` 追踪规则和模板证据，`VERIFY.json` 保存本地审计结果。

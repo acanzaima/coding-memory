@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -55,6 +55,9 @@ try {
     "OVERVIEW.md",
     "EVIDENCE.md",
     "EVIDENCE.json",
+    "MANIFEST.json",
+    "TRACE.json",
+    "VERIFY.json",
   ];
   for (const file of expectedFiles) {
     assert.doesNotThrow(() => readFileSync(join(typeDir, file), "utf8"), file);
@@ -78,6 +81,18 @@ try {
   const lock = JSON.parse(readFileSync(join(home, "lock.json"), "utf8"));
   assert.equal(lock.skills["e2e-skill/vue3"].learnCount, 1);
   assert.equal(lock.skills["e2e-skill/vue3"].skillPath, "e2e-skill/reference/vue3/");
+  const manifest = JSON.parse(readFileSync(join(typeDir, "MANIFEST.json"), "utf8"));
+  assert.equal(manifest.layers.length, 8);
+  assert.ok(manifest.layers[0].scope.length > 0, "expected L1 scope index");
+  const trace = JSON.parse(readFileSync(join(typeDir, "TRACE.json"), "utf8"));
+  assert.ok(trace.rules.length > 0, "expected structured rules");
+  const verify = JSON.parse(readFileSync(join(typeDir, "VERIFY.json"), "utf8"));
+  assert.equal(verify.ok, true);
+  const runRoots = readdirSync(join(home, ".runs", "e2e-skill", "vue3"));
+  assert.ok(runRoots.length >= 1, "expected learn run checkpoint");
+  const runDir = join(home, ".runs", "e2e-skill", "vue3", runRoots[0]);
+  assert.doesNotThrow(() => readFileSync(join(runDir, "manifest.json"), "utf8"));
+  assert.doesNotThrow(() => readFileSync(join(runDir, "calls.jsonl"), "utf8"));
 
   assert.equal(
     requests.length,
@@ -146,6 +161,7 @@ try {
   const l2UpdatePrompt = l2UpdateRequest.messages.map((msg) => msg.content || "").join("\n");
   assert.match(l2UpdatePrompt, /OLD_L2_SENTINEL/);
   assert.doesNotMatch(l2UpdatePrompt, /OLD_L1_SENTINEL/);
+  assert.doesNotThrow(() => readFileSync(join(typeDir, ".previous", "TRACE.json"), "utf8"));
 
   const englishHome = mkdtempSync(join(tmpdir(), "coding-memory-e2e-en-"));
   const englishOutputDir = join(englishHome, "skills");

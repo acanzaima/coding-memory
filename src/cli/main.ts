@@ -317,8 +317,38 @@ async function main() {
             dryRun: !!(flags["dry-run"] || flags.d),
             focus: asString(flags.focus) || asString(flags.f),
             projectType: asString(flags.type),
+            resume:
+              typeof flags.resume === "string"
+                ? flags.resume
+                : !!flags.resume || !!flags.r,
           });
         }
+        break;
+      }
+
+      case "inspect": {
+        const { inspectCommand } = await import("../commands/inspect.js");
+        await inspectCommand(positional[0], {
+          type: asString(flags.type),
+          layer: asString(flags.layer),
+        });
+        break;
+      }
+
+      case "verify": {
+        const { verifyCommand } = await import("../commands/verify.js");
+        await verifyCommand(positional[0], {
+          type: asString(flags.type),
+          strict: !!flags.strict,
+        });
+        break;
+      }
+
+      case "diff": {
+        const { diffCommand } = await import("../commands/diff.js");
+        await diffCommand(positional[0], {
+          type: asString(flags.type),
+        });
         break;
       }
 

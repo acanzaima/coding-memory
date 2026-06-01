@@ -12,6 +12,15 @@ import { chatCompletion } from "../llm/client.js";
 import { getLanguageDisplayName } from "../scanner/language.js";
 import { prepareCodeSample } from "../scanner/file-scanner.js";
 import type { CodingMemoryConfig, LLMConfig, LanguageGroup } from "../types.js";
+import {
+  readLayerCheckpoint,
+  readPhaseCheckpoint,
+  recordLlmDiagnostic,
+  writeLayerCheckpoint,
+  writePhaseCheckpoint,
+  writeRunJson,
+  type LearnRun,
+} from "./run.js";
 
 const FILE_LISTING_CHAR_LIMIT = 20000;
 const LAYER_SAMPLE_BUDGET = 30000;
@@ -29,6 +38,7 @@ export interface GenerateSkillOptions {
   retryMode?: boolean;
   evidence?: string;
   outputLanguage?: CodingMemoryConfig["outputLanguage"];
+  run?: LearnRun;
 }
 
 export async function generateSkill(
@@ -45,6 +55,7 @@ export async function generateSkill(
     retryMode = false,
     evidence,
     outputLanguage = "zh",
+    run,
   } = opts;
   const samples = prepareCodeSample(group, 80000);
   const langDisplay = getLanguageDisplayName(group.language);
@@ -101,7 +112,10 @@ ${retryMode ? `- STRICT FORMAT: Use EXACTLY '${labels.l1Header}' headers. Each l
   let fi = "";
   if (focus) {
     onProgress?.("Interpreting focus...");
-    fi = await refineFocus(config, focus, langDisplay, outputLanguage);
+    fi =
+      readPhaseCheckpoint(run, "focus") ||
+      (await refineFocus(config, focus, langDisplay, outputLanguage, run));
+    writePhaseCheckpoint(run, "focus", fi);
   }
   const focusBlock = fi
     ? renderFocusBlock(fi, outputLanguage, tags.pending)
@@ -121,12 +135,16 @@ ${isUpdate ? `\nExisting:\n\`\`\`\n${existingSkill!.slice(0, 1500)}\n\`\`\`` : "
   });
   msgs.push({
     role: "assistant",
-    content: await chatCompletion(config, {
-      messages: [...msgs],
-      temperature: 0.3,
-      maxTokens: 8192,
-    }),
+    content:
+      readPhaseCheckpoint(run, "P0") ||
+      (await chatCompletion(config, {
+        messages: [...msgs],
+        temperature: 0.3,
+        maxTokens: 8192,
+        diagnostics: diagnostics(run, "P0-plan"),
+      })),
   });
+  writePhaseCheckpoint(run, "P0", msgs[msgs.length - 1].content);
 
   // ═══════════ Phase 1 (L1-L4) ═══════════
   onProgress?.("Exploring L1-L4...");
@@ -164,12 +182,16 @@ Code:\n${ctx.slice(0, 70000)}`,
   });
   msgs.push({
     role: "assistant",
-    content: await chatCompletion(config, {
-      messages: [...msgs],
-      temperature: 0.3,
-      maxTokens: 8192,
-    }),
+    content:
+      readPhaseCheckpoint(run, "P1") ||
+      (await chatCompletion(config, {
+        messages: [...msgs],
+        temperature: 0.3,
+        maxTokens: 8192,
+        diagnostics: diagnostics(run, "P1-explore"),
+      })),
   });
+  writePhaseCheckpoint(run, "P1", msgs[msgs.length - 1].content);
 
   // ═══════════ Phase 2 (L5-L8) ═══════════
   onProgress?.("Extracting L5-L8...");
@@ -209,12 +231,16 @@ Tag with confidence: ${tags.must}/${tags.recommended}/${tags.optional}.`,
   });
   msgs.push({
     role: "assistant",
-    content: await chatCompletion(config, {
-      messages: [...msgs],
-      temperature: 0.3,
-      maxTokens: 8192,
-    }),
+    content:
+      readPhaseCheckpoint(run, "P2") ||
+      (await chatCompletion(config, {
+        messages: [...msgs],
+        temperature: 0.3,
+        maxTokens: 8192,
+        diagnostics: diagnostics(run, "P2-extract"),
+      })),
   });
+  writePhaseCheckpoint(run, "P2", msgs[msgs.length - 1].content);
 
   // ═══════════ Phase 3 ═══════════
   onProgress?.("Generating SKILL.md...");
@@ -391,11 +417,18 @@ ${retryMode ? `STRICT: Output the SKILL.md DIRECTLY. Do NOT wrap in \`\`\`markdo
         group,
         specs,
         evidence: evidenceBlock,
+        run,
       })
     : fallbackLayerFilePlan(group, specs);
+  writeRunJson(run, "file-plan.json", layerFilePlan);
   const generatedLayers: string[] = [];
   for (const spec of specs) {
     onProgress?.(`Generating ${spec.id}...`);
+    const checkpoint = readLayerCheckpoint(run, spec.id);
+    if (checkpoint) {
+      generatedLayers.push(checkpoint);
+      continue;
+    }
     const selectedForLayer = useLlmFileSelection
       ? await refineLayerFiles(config, {
           group,
@@ -403,6 +436,7 @@ ${retryMode ? `STRICT: Output the SKILL.md DIRECTLY. Do NOT wrap in \`\`\`markdo
           initialPaths: layerFilePlan[spec.id] || [],
           previousLayers: generatedLayers,
           evidence: evidenceBlock,
+          run,
         })
       : layerFilePlan[spec.id] || [];
     const samplesForLayer = prepareLayerSamples(
@@ -419,8 +453,10 @@ ${retryMode ? `STRICT: Output the SKILL.md DIRECTLY. Do NOT wrap in \`\`\`markdo
       existingLayer: existingLayers.get(spec.id) || null,
       previousLayers: generatedLayers,
       samples: samplesForLayer,
+      run,
     });
     generatedLayers.push(layerContent);
+    writeLayerCheckpoint(run, spec.id, layerContent, selectedForLayer);
   }
 
   let c = assembleSkillDocument({
@@ -471,8 +507,10 @@ All ${fi ? "13" : "12"}${retryMode ? `-${fi ? "14" : "13"}` : ""} pass: respond 
       ),
       temperature: 0.2,
       maxTokens: 8192,
+      diagnostics: diagnostics(run, "P4-validate"),
     })
   ).trim();
+  writePhaseCheckpoint(run, "P4", v);
   if (v.startsWith("PASS") || v.startsWith("pass")) return c.trim();
   if (v.startsWith("```markdown")) v = v.slice(11);
   else if (v.startsWith("```md")) v = v.slice(6);
@@ -485,6 +523,9 @@ interface LayerSpec {
   id: string;
   header: string;
   sections: string[];
+  scope?: string;
+  excludes?: string;
+  taskUses?: string[];
   templateName: string;
   templateLanguage: string;
   templateHint: string;
@@ -504,6 +545,7 @@ async function generateSingleLayer(
     existingLayer?: string | null;
     previousLayers?: string[];
     samples?: { filePath: string; content: string }[];
+    run?: LearnRun;
   },
 ): Promise<string> {
   const {
@@ -515,6 +557,7 @@ async function generateSingleLayer(
     previousLayers,
     samples,
   } = opts;
+  const meta = layerMeta(spec.id, outputLanguage);
 
   // Build cross-layer awareness: summarize what prior layers cover
   const priorContext =
@@ -546,23 +589,36 @@ ${renderLayerSamples(samples || [])}
 Required exact header:
 ${spec.header}
 
-Required subsections:
-${spec.sections.map((section) => `- ### ${section}`).join("\n")}
-- ### ${labels.templatePrefix}${spec.templateName}
+Layer scope:
+- Owns: ${meta.scope}
+- Does not own: ${meta.excludes}
+- Task playbook uses: ${meta.taskUses.join(", ")}
+
+Required subsections in this exact order:
+- ### ${labels.scope}
+- ### ${labels.rules}
+- ### ${labels.templates}
 - ### ${labels.antiPatterns}
-- ### ${labels.pendingSection}
+- ### ${labels.evidence}
+- ### ${labels.gaps}
 
 Template requirements:
 - Use a real code pattern from scanned files when available.
 - If no reusable pattern exists, write "${noPatternText(outputLanguage)}".
 - Keep code examples short and cite real file paths.
 - Prefer the layer-relevant code evidence above when writing rules/templates.
+- Put the template under ### ${labels.templates}, with a subheading or bullet named "${spec.templateName}".
 
 Governance requirements:
-- Tag conventions with ${tags.personal}/${tags.project} and confidence ${tags.must}/${tags.recommended}/${tags.optional}.
-- Tag all suggestions with ${tags.pending} and keep them only under ### ${labels.pendingSection}.
+- Put directly usable conventions under ### ${labels.rules}.
+- Tag rules with ${tags.personal}/${tags.project} and confidence ${tags.must}/${tags.recommended}/${tags.optional}.
+- Put supporting file paths/evidence summaries under ### ${labels.evidence}.
+- Tag all suggestions with ${tags.pending} and keep them only under ### ${labels.gaps}.
 - Do not invent tools/frameworks.
 - Output ONLY markdown for ${spec.id}. No surrounding code fence.
+
+Legacy topic checklist to cover inside Rules/Evidence when supported:
+${spec.sections.map((section) => `- ${section}`).join("\n")}
 
 Template hint:
 \`\`\`${spec.templateLanguage}
@@ -572,6 +628,7 @@ ${spec.templateHint}
       ],
       temperature: 0.3,
       maxTokens: 4096,
+      diagnostics: diagnostics(opts.run, `P3-${spec.id}`),
     })
   ).trim();
 
@@ -579,7 +636,7 @@ ${spec.templateHint}
   if (!content.startsWith(`## ${spec.id}`)) {
     content = `${spec.header}\n\n${content}`;
   }
-  return content.trim();
+  return normalizeLayerSchema(content.trim(), spec, labels, outputLanguage);
 }
 
 function assembleSkillDocument(opts: {
@@ -645,6 +702,81 @@ function assembleSkillDocument(opts: {
       ? "| [date] | merge | Updated |"
       : "| [date] | create | Initial |",
   ].join("\n");
+}
+
+function normalizeLayerSchema(
+  content: string,
+  spec: LayerSpec,
+  labels: ReturnType<typeof layerLabels>,
+  outputLanguage: CodingMemoryConfig["outputLanguage"],
+): string {
+  const existing = new Set(extractThirdLevelHeadings(content));
+  const blocks: string[] = [content.trim()];
+  const appendIfMissing = (label: string, body: string) => {
+    if (hasHeading(existing, label)) return;
+    blocks.push(`### ${label}\n${body}`);
+  };
+
+  appendIfMissing(
+    labels.scope,
+    [
+      `- ${outputLanguage === "en" ? "Owns" : "负责"}: ${layerMeta(spec.id, outputLanguage).scope}`,
+      `- ${outputLanguage === "en" ? "Does not own" : "不负责"}: ${layerMeta(spec.id, outputLanguage).excludes}`,
+      `- ${outputLanguage === "en" ? "Task uses" : "任务入口"}: ${layerMeta(spec.id, outputLanguage).taskUses.join(", ")}`,
+    ].join("\n"),
+  );
+  appendIfMissing(
+    labels.rules,
+    outputLanguage === "en"
+      ? `- ${noPatternText(outputLanguage)}.`
+      : `- ${noPatternText(outputLanguage)}。`,
+  );
+  appendIfMissing(
+    labels.templates,
+    [
+      `#### ${spec.templateName}`,
+      noPatternText(outputLanguage),
+    ].join("\n"),
+  );
+  appendIfMissing(
+    labels.antiPatterns,
+    outputLanguage === "en"
+      ? `- ${noPatternText(outputLanguage)}.`
+      : `- ${noPatternText(outputLanguage)}。`,
+  );
+  appendIfMissing(
+    labels.evidence,
+    outputLanguage === "en"
+      ? "- See EVIDENCE.md and TRACE.json for deterministic evidence."
+      : "- 详见 EVIDENCE.md 与 TRACE.json 中的确定性证据。",
+  );
+  appendIfMissing(
+    labels.gaps,
+    outputLanguage === "en" ? "- None." : "- 无。",
+  );
+  return blocks.join("\n\n").trim();
+}
+
+function extractThirdLevelHeadings(content: string): string[] {
+  return [...content.matchAll(/^###\s+(.+)$/gm)].map((m) => normalizeHeading(m[1]));
+}
+
+function hasHeading(existing: Set<string>, label: string): boolean {
+  const normalized = normalizeHeading(label);
+  for (const heading of existing) {
+    if (heading === normalized || heading.includes(normalized) || normalized.includes(heading)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeHeading(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[：:]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function unwrapMarkdownFence(content: string): string {
@@ -724,6 +856,7 @@ async function selectLayerFiles(
     group: LanguageGroup;
     specs: LayerSpec[];
     evidence: string;
+    run?: LearnRun;
   },
 ): Promise<Record<string, string[]>> {
   const listing = renderFileListing(opts.group);
@@ -757,6 +890,7 @@ ${listing}`,
       temperature: 0.1,
       maxTokens: 8192,
       responseFormat: "json_object",
+      diagnostics: diagnostics(opts.run, "file-selection-initial"),
     });
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return mergeLayerFilePlans(
@@ -777,6 +911,7 @@ async function refineLayerFiles(
     initialPaths: string[];
     previousLayers: string[];
     evidence: string;
+    run?: LearnRun;
   },
 ): Promise<string[]> {
   const fallback = opts.initialPaths.length
@@ -827,6 +962,7 @@ ${listing}`,
       temperature: 0.1,
       maxTokens: 4096,
       responseFormat: "json_object",
+      diagnostics: diagnostics(opts.run, `file-selection-${opts.spec.id}`),
     });
     const parsed = JSON.parse(raw) as { files?: unknown };
     const known = new Set(opts.group.files.map((file) => file.path));
@@ -1181,11 +1317,103 @@ function layerSpecs(
   ];
 }
 
+function layerMeta(
+  id: string,
+  outputLanguage: CodingMemoryConfig["outputLanguage"],
+): { scope: string; excludes: string; taskUses: string[] } {
+  const en: Record<string, { scope: string; excludes: string; taskUses: string[] }> = {
+    L1: {
+      scope: "project map, entrypoints, directory responsibilities, runtime boundaries",
+      excludes: "module API details, function internals, deployment scripts",
+      taskUses: ["add page/component", "locate entrypoint", "place new files"],
+    },
+    L2: {
+      scope: "module contracts, public interfaces, dependency direction, split granularity",
+      excludes: "local function bodies, persistence details, build operations",
+      taskUses: ["add API", "split module", "define boundary"],
+    },
+    L3: {
+      scope: "domain language, naming, type shapes, DTO/entity/model vocabulary",
+      excludes: "runtime control flow and storage implementation",
+      taskUses: ["name types", "add DTO/model", "align constants"],
+    },
+    L4: {
+      scope: "execution patterns, function shape, error flow, async/resource handling",
+      excludes: "module placement, data schema ownership, CI/build setup",
+      taskUses: ["write function", "handle errors", "add async flow"],
+    },
+    L5: {
+      scope: "state, persistence, caching, transactions, data flow",
+      excludes: "UI layout, generic naming, build tooling",
+      taskUses: ["add store/repository", "change data flow", "add cache"],
+    },
+    L6: {
+      scope: "quality system: tests, lint, formatting, docs, logging/observability",
+      excludes: "business rule invention, deployment topology",
+      taskUses: ["add tests", "add logging", "update docs"],
+    },
+    L7: {
+      scope: "cross-cutting policy: security, authorization, performance, configuration, i18n/accessibility when present",
+      excludes: "one-off feature implementation unless it expresses a shared policy",
+      taskUses: ["add permission", "validate input", "optimize shared path"],
+    },
+    L8: {
+      scope: "operations and bootstrap: package manager, build, startup, env, CI/CD, deployment hooks",
+      excludes: "feature-level business logic and local function internals",
+      taskUses: ["change startup", "adjust build", "configure environment"],
+    },
+  };
+  const zh: Record<string, { scope: string; excludes: string; taskUses: string[] }> = {
+    L1: {
+      scope: "项目地图、入口、目录职责、运行边界",
+      excludes: "模块 API 细节、函数内部实现、部署脚本",
+      taskUses: ["新增页面/组件", "定位入口", "放置新文件"],
+    },
+    L2: {
+      scope: "模块契约、公开接口、依赖方向、拆分粒度",
+      excludes: "局部函数体、持久化细节、构建运行配置",
+      taskUses: ["新增 API", "拆分模块", "定义边界"],
+    },
+    L3: {
+      scope: "领域语言、命名、类型形态、DTO/Entity/Model 词汇",
+      excludes: "运行控制流和存储实现",
+      taskUses: ["命名类型", "新增 DTO/模型", "对齐常量"],
+    },
+    L4: {
+      scope: "执行模式、函数形态、错误流、异步与资源处理",
+      excludes: "模块放置、数据 schema 归属、CI/构建设置",
+      taskUses: ["编写函数", "处理错误", "新增异步流程"],
+    },
+    L5: {
+      scope: "状态、持久化、缓存、事务、数据流",
+      excludes: "UI 布局、通用命名、构建工具",
+      taskUses: ["新增 store/repository", "修改数据流", "新增缓存"],
+    },
+    L6: {
+      scope: "质量体系：测试、lint、格式化、文档、日志/观测",
+      excludes: "凭空新增业务规则、部署拓扑",
+      taskUses: ["新增测试", "补日志", "更新文档"],
+    },
+    L7: {
+      scope: "横切策略：安全、权限、性能、配置、存在时的国际化/可访问性",
+      excludes: "不能代表共享策略的一次性功能实现",
+      taskUses: ["新增权限", "输入校验", "优化公共路径"],
+    },
+    L8: {
+      scope: "工程运行：包管理、构建、启动、环境、CI/CD、部署钩子",
+      excludes: "特性级业务逻辑和局部函数内部",
+      taskUses: ["修改启动", "调整构建", "配置环境"],
+    },
+  };
+  return (outputLanguage === "en" ? en : zh)[id] || en.L1;
+}
+
 async function refineFocus(
   config: LLMConfig,
   raw: string,
   lang: string,
   outputLanguage: CodingMemoryConfig["outputLanguage"] = "zh",
+  run?: LearnRun,
 ): Promise<string> {
   return (
     await chatCompletion(config, {
@@ -1207,8 +1435,17 @@ async function refineFocus(
       ],
       temperature: 0.3,
       maxTokens: 4096,
+      diagnostics: diagnostics(run, "focus"),
     })
   ).trim();
+}
+
+function diagnostics(run: LearnRun | undefined, phase: string) {
+  return {
+    phase,
+    onEvent: (event: Parameters<typeof recordLlmDiagnostic>[1]) =>
+      recordLlmDiagnostic(run, event),
+  };
 }
 
 function renderFocusBlock(
@@ -1259,6 +1496,11 @@ function layerLabels(outputLanguage: CodingMemoryConfig["outputLanguage"]) {
       templatePrefix: "Template: ",
       antiPatterns: "Anti-patterns",
       pendingSection: "To Verify",
+      scope: "Scope",
+      rules: "Rules",
+      templates: "Templates",
+      evidence: "Evidence",
+      gaps: "Gaps",
       projectOverview: "Project Overview",
       techStack: "Tech Stack",
     };
@@ -1283,6 +1525,11 @@ function layerLabels(outputLanguage: CodingMemoryConfig["outputLanguage"]) {
     templatePrefix: "模板：",
     antiPatterns: "反模式",
     pendingSection: "待验证",
+    scope: "范围",
+    rules: "规则",
+    templates: "模板",
+    evidence: "证据",
+    gaps: "缺口",
     projectOverview: "项目概览",
     techStack: "技术栈",
   };

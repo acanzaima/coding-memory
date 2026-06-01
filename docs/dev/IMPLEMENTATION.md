@@ -10,7 +10,7 @@
 2. `buildLearnContext()` 将多个语言组合并为项目级输入，检测项目类型，读取已有 L1-L8，并收集确定性 Evidence。
 3. `runGeneration()` 调用 LLM 版 `generateSkill()`。Evidence 会被渲染为 prompt 文本，并注入全部生成阶段。
 4. `validateAndGovernLayers()` 拆分 L1-L8，结构异常时重试一次，并运行产物治理。
-5. `writeLearningArtifacts()` 写入 L1-L8、`OVERVIEW.md`、`EVIDENCE.md`、`EVIDENCE.json`，并更新 `lock.json`。
+5. `writeLearningArtifacts()` 写入 L1-L8、`OVERVIEW.md`、`EVIDENCE.md`、`EVIDENCE.json`、`MANIFEST.json`、`TRACE.json`、`VERIFY.json`，并更新 `lock.json`。
 6. `updateMasterArtifacts()` 重新生成顶层 `SKILL.md` 和 `QUALITY.md`。
 
 ## Evidence 层
@@ -59,8 +59,38 @@ Evidence 会注入每个阶段。这并不等于对 LLM 输出做形式化证明
 - 每层只注入与该层相关的代码样本，默认由本地路径启发式选择。
 - 后续层会收到前序层的标题摘要，用于跨层一致性，但不会重复全文。
 - update 时会把旧 L1-L8 解析成按层 map，生成 L2 只注入旧 L2，生成 L7 只注入旧 L7，避免整份历史文档在每层膨胀。
+- 每个 L1-L8 层会被约束为稳定 schema：`Scope`、`Rules`、`Templates`、`Anti-patterns`、`Evidence`、`Gaps`。旧模型输出缺段时，本地 `normalizeLayerSchema()` 会补齐保守占位。
+- update 时如果存在上一版 `TRACE.json`，会把仍有文件证据支持的规则与 stale 规则作为生命周期提示注入，要求模型保留 active、降级或移除 stale。
 
 可选的 `CODING_MEMORY_LLM_FILE_SELECTION=1` 会启用 LLM 文件选择/逐层 refinement。默认关闭，以减少真实项目 learn 的调用次数和耗时。
+
+## Learn Run 与恢复
+
+每次非 dry-run 的 `learn` 会在 `~/.coding-memory/.runs/<skill>/<projectType>/<runId>/` 下创建运行状态：
+
+- `manifest.json`：记录项目、scan hash、evidence hash、P0/P1/P2/P4 和 L1-L8 状态。
+- `P0.md`、`P1.md`、`P2.md`：阶段 checkpoint。
+- `layers/L1.md` ... `layers/L8.md`：逐层生成 checkpoint。
+- `file-plan.json`：按层文件选择计划。
+- `calls.jsonl`：每次 LLM 调用诊断，包括 phase、maxTokens、请求/响应字符数、usage、empty reason、错误信息。
+
+`coding-memory learn --resume` 会查找最近一次 scan hash 和 evidence hash 兼容的 run，从已完成 checkpoint 继续，避免网络中断、empty response 或 terminated 后整条流水线重跑。
+
+## 结构化产物
+
+`reference/<type>/` 下新增三个 sidecar：
+
+- `MANIFEST.json`：项目类型索引，记录每层文件、主题、规则数、模板数、Evidence 覆盖。
+- `TRACE.json`：从 L1-L8 中抽取规则和模板，并尽量关联 Evidence id 与文件路径；用于 diff、verify 和 update 生命周期提示。
+- `VERIFY.json`：本地确定性审计结果，记录缺层、缺 schema 段、stale/pending 规则和模板统计。
+
+对应 CLI：
+
+```bash
+coding-memory inspect <skill> [--type vue3] [--layer L4]
+coding-memory verify <skill> [--strict]
+coding-memory diff <skill> [--type vue3]
+```
 
 ## 产物语言
 

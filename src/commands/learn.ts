@@ -13,6 +13,7 @@ import {
   writeFileSync,
   readFileSync,
   readdirSync,
+  cpSync,
 } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -39,6 +40,21 @@ import {
   generateMasterOverview,
   generateQualityReport,
 } from "../memory/overview.js";
+import {
+  buildReferenceManifest,
+  buildTrace,
+  copyTraceSnapshot,
+  verifyReferenceArtifacts,
+  readStructuredArtifacts,
+  type TraceFile,
+} from "../memory/artifacts.js";
+import {
+  completeLearnRun,
+  failLearnRun,
+  openLearnRun,
+  stableHash,
+  type LearnRun,
+} from "../memory/run.js";
 import type {
   CodingMemoryConfig,
   LanguageGroup,
@@ -68,6 +84,8 @@ interface LearnContext {
   evidenceReport: EvidenceReport;
   evidencePrompt: string;
   outputLanguage: CodingMemoryConfig["outputLanguage"];
+  run: LearnRun | null;
+  previousTrace: TraceFile | null;
 }
 
 interface GovernedLayers {
@@ -144,7 +162,12 @@ function spinner(msg: string) {
 export async function learnCommand(
   projectRoot: string,
   skillNameArg?: string,
-  options?: { dryRun?: boolean; focus?: string; projectType?: string },
+  options?: {
+    dryRun?: boolean;
+    focus?: string;
+    projectType?: string;
+    resume?: boolean | string;
+  },
 ): Promise<void> {
   const config = readConfig();
 
@@ -182,6 +205,8 @@ export async function learnCommand(
 
   const context = buildLearnContext(projectRoot, skillName, groups, config, {
     projectType: options?.projectType,
+    resume: options?.resume,
+    dryRun: options?.dryRun,
   });
 
   if (!options?.dryRun) {
@@ -204,20 +229,27 @@ export async function learnCommand(
     results.push(createLearnResult(context));
   } else {
     const sp2 = spinner("Planning (0/5)...");
-    const rawSkillContent = await runGeneration(
-      context,
-      llmConfig!,
-      options,
-      (msg: string) => sp2.update(msg),
-    );
-    sp2.stop("Generation complete");
+    try {
+      const rawSkillContent = await runGeneration(
+        context,
+        llmConfig!,
+        options,
+        (msg: string) => sp2.update(msg),
+      );
+      sp2.stop("Generation complete");
 
-    const governed = validateAndGovernLayers(
-      rawSkillContent,
-      context.outputLanguage,
-      context.evidenceReport,
-    );
-    results.push(writeLearningArtifacts(context, governed));
+      const governed = validateAndGovernLayers(
+        rawSkillContent,
+        context.outputLanguage,
+        context.evidenceReport,
+      );
+      results.push(writeLearningArtifacts(context, governed));
+      if (context.run) completeLearnRun(context.run);
+    } catch (err) {
+      sp2.stop();
+      if (context.run) failLearnRun(context.run, err);
+      throw err;
+    }
   }
 
   // Master overview
@@ -263,7 +295,7 @@ function buildLearnContext(
   skillName: string,
   groups: LanguageGroup[],
   config: CodingMemoryConfig,
-  options?: { projectType?: string },
+  options?: { projectType?: string; resume?: boolean | string; dryRun?: boolean },
 ): LearnContext {
   const lock = readSkillsLock();
   const baseDir = getSkillsDir(config);
@@ -283,10 +315,35 @@ function buildLearnContext(
   };
   const evidenceReport = collectEvidence(combinedGroup, projType);
   const evidencePrompt = renderEvidencePrompt(evidenceReport);
+  const scanHash = stableHash(
+    JSON.stringify(
+      allFiles
+        .map((file) => ({
+          path: file.path,
+          size: file.size,
+          hash: stableHash(file.content),
+        }))
+        .sort((a, b) => a.path.localeCompare(b.path)),
+    ),
+  );
 
   const lockKey = `${skillName}/${projType}`;
   const existingEntry = findExistingSkill(lock, lockKey);
   const existingContent = existingEntry ? readExistingLayers(typeDir) : null;
+  const previousTrace = existingEntry
+    ? copyTraceSnapshot(readStructuredArtifacts(typeDir).trace)
+    : null;
+  const run = options?.dryRun
+    ? null
+    : openLearnRun({
+        projectRoot,
+        skillName,
+        projectType: projType,
+        scanHash,
+        evidenceReport,
+        retryMode: false,
+        resume: options?.resume,
+      });
 
   return {
     projectRoot,
@@ -307,6 +364,8 @@ function buildLearnContext(
     evidenceReport,
     evidencePrompt,
     outputLanguage: config.outputLanguage,
+    run,
+    previousTrace,
   };
 }
 
@@ -332,8 +391,9 @@ async function runGeneration(
     onProgress,
     focus: options?.focus,
     retryMode: false,
-    evidence: context.evidencePrompt,
+    evidence: appendUpdateTracePolicy(context.evidencePrompt, context),
     outputLanguage: context.outputLanguage,
+    run: context.run || undefined,
   });
 
   let { layers, missing } = splitLayers(skillContent);
@@ -350,8 +410,9 @@ async function runGeneration(
       onProgress,
       focus: options?.focus,
       retryMode: true,
-      evidence: context.evidencePrompt,
+      evidence: appendUpdateTracePolicy(context.evidencePrompt, context),
       outputLanguage: context.outputLanguage,
+      run: context.run || undefined,
     });
     const retry = splitLayers(skillContent);
     layers = retry.layers;
@@ -372,6 +433,28 @@ async function runGeneration(
   }
 
   return skillContent;
+}
+
+function appendUpdateTracePolicy(baseEvidence: string, context: LearnContext): string {
+  if (!context.previousTrace) return baseEvidence;
+  const currentFiles = new Set(context.allFiles.map((file) => file.path));
+  const stale = context.previousTrace.rules.filter(
+    (rule) => rule.files.length > 0 && rule.files.every((file) => !currentFiles.has(file)),
+  );
+  const active = context.previousTrace.rules.filter(
+    (rule) => rule.files.length === 0 || rule.files.some((file) => currentFiles.has(file)),
+  );
+  return [
+    baseEvidence,
+    "",
+    "## Update Trace Policy",
+    "Previous structured rules are available as lifecycle hints.",
+    `- Previously active/current rules still supported by files: ${active.length}`,
+    `- Previously stale rules whose cited files disappeared: ${stale.length}`,
+    "- Preserve active rules only when current code/evidence still supports them.",
+    "- Downgrade or remove stale rules; do not copy stale examples into templates.",
+    ...stale.slice(0, 20).map((rule) => `- STALE ${rule.layer}: ${rule.text}`),
+  ].join("\n");
 }
 
 function validateAndGovernLayers(
@@ -402,6 +485,7 @@ function writeLearningArtifacts(
   context: LearnContext,
   governed: GovernedLayers,
 ): LearnResult {
+  snapshotPreviousArtifacts(context);
   for (const [name, content] of Object.entries(governed.layers)) {
     writeFileSync(join(context.typeDir, `${name}.md`), content, "utf-8");
   }
@@ -425,6 +509,41 @@ function writeLearningArtifacts(
     renderEvidenceJson(context.evidenceReport),
     "utf-8",
   );
+  const trace = buildTrace({
+    skillName: context.skillName,
+    projectType: context.projType,
+    layers: governed.layers,
+    evidence: context.evidenceReport,
+  });
+  const manifest = buildReferenceManifest({
+    skillName: context.skillName,
+    projectType: context.projType,
+    outputLanguage: context.outputLanguage,
+    layers: governed.layers,
+    evidence: context.evidenceReport,
+  });
+  const verify = verifyReferenceArtifacts({
+    skillName: context.skillName,
+    projectType: context.projType,
+    layers: governed.layers,
+    trace,
+    manifest,
+  });
+  writeFileSync(
+    join(context.typeDir, "TRACE.json"),
+    JSON.stringify(trace, null, 2) + "\n",
+    "utf-8",
+  );
+  writeFileSync(
+    join(context.typeDir, "MANIFEST.json"),
+    JSON.stringify(manifest, null, 2) + "\n",
+    "utf-8",
+  );
+  writeFileSync(
+    join(context.typeDir, "VERIFY.json"),
+    JSON.stringify(verify, null, 2) + "\n",
+    "utf-8",
+  );
 
   const contentHash = computeHash(governed.skillContent);
   const newLock = upsertSkillEntry(
@@ -443,6 +562,18 @@ function writeLearningArtifacts(
   Object.assign(context.lock, newLock);
 
   return createLearnResult(context);
+}
+
+function snapshotPreviousArtifacts(context: LearnContext): void {
+  if (!context.existingEntry || !existsSync(context.typeDir)) return;
+  const previousDir = join(context.typeDir, ".previous");
+  if (!existsSync(previousDir)) mkdirSync(previousDir, { recursive: true });
+  for (const file of ["TRACE.json", "MANIFEST.json", "VERIFY.json"]) {
+    const from = join(context.typeDir, file);
+    if (existsSync(from)) {
+      cpSync(from, join(previousDir, file));
+    }
+  }
 }
 
 function updateMasterArtifacts(context: LearnContext): void {
