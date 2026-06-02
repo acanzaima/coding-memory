@@ -7,6 +7,7 @@ export const rubyEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "Ruby/Rails 项目通过 routes.rb、controller 或资源路由暴露 HTTP API。",
+    appliesTo: ["ruby", "rails", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rb" &&
@@ -21,6 +22,7 @@ export const rubyEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "Ruby/Rails 数据访问通过 ActiveRecord model、migration 或 repository 层集中处理。",
+    appliesTo: ["ruby", "rails", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rb" &&
@@ -33,6 +35,7 @@ export const rubyEvidenceRules: EvidenceRule[] = [
     layer: "L4",
     category: "Implementation",
     summary: "Ruby 业务逻辑通过 service/job/policy/form 等对象从控制器中拆分。",
+    appliesTo: ["ruby", "rails", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rb" &&

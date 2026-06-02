@@ -7,6 +7,7 @@ export const phpEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "PHP 项目通过 routes/controller 或框架路由方法暴露 HTTP API。",
+    appliesTo: ["php", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".php" &&
@@ -21,6 +22,7 @@ export const phpEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "PHP 数据访问通过 Eloquent Model、migration 或 repository 层集中处理。",
+    appliesTo: ["php", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".php" &&
@@ -32,6 +34,7 @@ export const phpEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Security",
     summary: "PHP 输入校验通过 FormRequest、validate/rules 或中间件集中处理。",
+    appliesTo: ["php", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".php" &&

@@ -30,4 +30,5 @@ export interface EvidenceRule {
   test: (file: ScannedFile) => boolean;
   minHigh?: number;
   minMedium?: number;
+  appliesTo?: string[];
 }

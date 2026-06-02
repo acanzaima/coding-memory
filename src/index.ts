@@ -50,8 +50,8 @@ export { providerPresets, getBaseURL, getEnvVarName } from "./llm/providers.js";
 export type { ChatMessage, ChatCompletionOptions } from "./llm/client.js";
 export type { ProviderPreset, ModelPreset } from "./llm/providers.js";
 
-export { generateSkill } from "./memory/generator.js";
-export type { GenerateSkillOptions } from "./memory/generator.js";
+export { generateSkill, generateSkillDetailed } from "./memory/generator.js";
+export type { GenerateSkillOptions, GenerateSkillResult } from "./memory/generator.js";
 export {
   collectEvidence,
   renderEvidenceJson,

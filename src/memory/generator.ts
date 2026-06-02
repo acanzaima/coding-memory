@@ -8,7 +8,7 @@
  * P0 PLAN → P1 EXPLORE (L1-L4) → P2 EXTRACT (L5-L8) → P3 SYNTHESIZE → P4 VALIDATE
  */
 
-import { chatCompletion } from "../llm/client.js";
+import { chatCompletion, chatCompletionDetailed } from "../llm/client.js";
 import { getLanguageDisplayName } from "../scanner/language.js";
 import { prepareCodeSample } from "../scanner/file-scanner.js";
 import type { CodingMemoryConfig, LLMConfig, LanguageGroup } from "../types.js";
@@ -41,10 +41,26 @@ export interface GenerateSkillOptions {
   run?: LearnRun;
 }
 
+export interface GenerateSkillResult {
+  content: string;
+  validation: {
+    ok: boolean;
+    output: string;
+  };
+}
+
 export async function generateSkill(
   config: LLMConfig,
   opts: GenerateSkillOptions,
 ): Promise<string> {
+  const result = await generateSkillDetailed(config, opts);
+  return result.content;
+}
+
+export async function generateSkillDetailed(
+  config: LLMConfig,
+  opts: GenerateSkillOptions,
+): Promise<GenerateSkillResult> {
   const {
     group,
     skillName,
@@ -92,7 +108,7 @@ Tagging rules:
 - ${tags.pending} = improvement suggestion or unconfirmed tool. Tag ALL suggestions with this. Never mix ${tags.pending} with ${tags.must}/${tags.recommended}.
 - Confidence: ${tags.must} if 2+ projects or 5+ files, ${tags.recommended} if 3-4 files, ${tags.optional} if 1-2 files.
 - NEVER tag single-project patterns as ${tags.personal} — they are ${tags.project} by definition.
-- Improvement suggestions MUST be tagged ${tags.pending} and placed in a separate "### ${labels.pendingSection}" section per layer, NOT in conventions/templates.
+- Improvement suggestions MUST be tagged ${tags.pending} and placed under "### ${labels.gaps}" per layer, NOT in conventions/templates.
 
 CRITICAL RULES:
 - Only report patterns that EXIST in the code. If absent → "${noPatternText(outputLanguage)}".
@@ -188,6 +204,7 @@ Code:\n${ctx.slice(0, 70000)}`,
         messages: [...msgs],
         temperature: 0.3,
         maxTokens: 8192,
+        requireComplete: true,
         diagnostics: diagnostics(run, "P1-explore"),
       })),
   });
@@ -237,6 +254,7 @@ Tag with confidence: ${tags.must}/${tags.recommended}/${tags.optional}.`,
         messages: [...msgs],
         temperature: 0.3,
         maxTokens: 8192,
+        requireComplete: true,
         diagnostics: diagnostics(run, "P2-extract"),
       })),
   });
@@ -280,7 +298,7 @@ ${labels.l1Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -295,7 +313,7 @@ ${labels.l2Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -310,7 +328,7 @@ ${labels.l3Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -326,7 +344,7 @@ ${labels.l4Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -341,7 +359,7 @@ ${labels.l5Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -357,7 +375,7 @@ ${labels.l6Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -368,7 +386,7 @@ ${labels.l7Header}
 ### ${outputLanguage === "en" ? "Configuration Management" : "配置管理"}
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -387,7 +405,7 @@ ${labels.l8Header}
 \`\`\`
 ### ${labels.antiPatterns}
 
-### ${labels.pendingSection}
+### ${labels.gaps}
 [Improvement suggestions or unconfirmed patterns — tag with ${tags.pending}]
 
 ---
@@ -405,7 +423,7 @@ ${focusBlock}
 ${evidenceBlock}
 CRITICAL: Templates from real code only. If no pattern exists → "${noPatternText(outputLanguage)}".
 Tag each convention with ${tags.personal}/${tags.project} AND confidence ${tags.must}/${tags.recommended}/${tags.optional}.
-Tag ALL suggestions/improvements with ${tags.pending} and place in ### ${labels.pendingSection} section.
+Tag ALL suggestions/improvements with ${tags.pending} and place in ### ${labels.gaps} section.
 ${retryMode ? `STRICT: Output the SKILL.md DIRECTLY. Do NOT wrap in \`\`\`markdown fences. Use EXACTLY '${labels.l1Header}' format for each layer header. Every layer MUST contain ### ${labels.templatePrefix} subsection.` : "Output ONLY the SKILL.md. No code fences."}`,
   });
 
@@ -477,6 +495,15 @@ ${retryMode ? `STRICT: Output the SKILL.md DIRECTLY. Do NOT wrap in \`\`\`markdo
 
   // ═══════════ Phase 4 ═══════════
   onProgress?.("Validating...");
+  const localValidation = validateGeneratedSkillLocally(c, labels, outputLanguage);
+  if (localValidation.ok && !shouldForceLlmValidation()) {
+    const output = "PASS (local validation)";
+    writePhaseCheckpoint(run, "P4", output);
+    return {
+      content: c.trim(),
+      validation: { ok: true, output },
+    };
+  }
   msgs.push({
     role: "user",
     content: `## Phase 4 — Validate
@@ -491,7 +518,7 @@ Check EVERY layer:
 8. [ ] Missing patterns marked "${noPatternText(outputLanguage)}" (NOT suggested frameworks)?
 9. [ ] NO "推测" (speculate), "可能" (maybe), "未发现" (not found) used as rules?
 10. [ ] No invented tool/framework names that don't appear in the code?
-11. [ ] All improvement suggestions tagged ${tags.pending} and placed in ### ${labels.pendingSection} sections (not mixed with conventions)?
+11. [ ] All improvement suggestions tagged ${tags.pending} and placed in ### ${labels.gaps} sections (not mixed with conventions)?
 12. [ ] Deterministic evidence was used as the factual floor and unsupported claims were omitted or marked ${tags.pending}?
 ${fi ? `13. [ ] The user focus was used only as an inspection lens, not as evidence by itself?` : ""}
 ${retryMode ? `${fi ? "14" : "13"}. [ ] NO markdown code fences wrapping the entire output?` : ""}
@@ -511,12 +538,21 @@ All ${fi ? "13" : "12"}${retryMode ? `-${fi ? "14" : "13"}` : ""} pass: respond 
     })
   ).trim();
   writePhaseCheckpoint(run, "P4", v);
-  if (v.startsWith("PASS") || v.startsWith("pass")) return c.trim();
+  const validationOk = v.startsWith("PASS") || v.startsWith("pass");
+  if (validationOk) {
+    return {
+      content: c.trim(),
+      validation: { ok: true, output: v },
+    };
+  }
   if (v.startsWith("```markdown")) v = v.slice(11);
   else if (v.startsWith("```md")) v = v.slice(6);
   else if (v.startsWith("```")) v = v.slice(3);
   if (v.endsWith("```")) v = v.slice(0, -3);
-  return c.trim();
+  return {
+    content: c.trim(),
+    validation: { ok: false, output: v.trim() },
+  };
 }
 
 interface LayerSpec {
@@ -529,6 +565,97 @@ interface LayerSpec {
   templateName: string;
   templateLanguage: string;
   templateHint: string;
+}
+
+function validateGeneratedSkillLocally(
+  content: string,
+  labels: ReturnType<typeof layerLabels>,
+  outputLanguage: CodingMemoryConfig["outputLanguage"],
+): { ok: boolean; issues: string[] } {
+  const issues: string[] = [];
+  const layers = splitGeneratedSkillLayers(content);
+  for (let i = 1; i <= 8; i++) {
+    const id = `L${i}`;
+    const layer = layers.get(id);
+    if (!layer) {
+      issues.push(`${id} missing`);
+      continue;
+    }
+    if (detectLayerTruncation(layer)) {
+      issues.push(`${id} appears truncated`);
+    }
+    for (const section of [
+      labels.scope,
+      labels.rules,
+      labels.templates,
+      labels.antiPatterns,
+      labels.evidence,
+      labels.gaps,
+    ]) {
+      if (!hasMarkdownHeading(layer, 3, section)) {
+        issues.push(`${id} missing ${section}`);
+      }
+    }
+    if (
+      !hasMarkdownHeading(layer, 3, labels.templates) &&
+      !layer.includes("无现有模式") &&
+      !/no existing pattern/i.test(layer)
+    ) {
+      issues.push(`${id} missing template fallback`);
+    }
+    if (
+      outputLanguage === "zh" &&
+      !hasMarkdownHeading(layer, 3, "反模式") &&
+      !/###\s+Anti-?patterns?/i.test(layer)
+    ) {
+      issues.push(`${id} missing anti-patterns`);
+    }
+    if (
+      outputLanguage === "en" &&
+      !hasMarkdownHeading(layer, 3, "Anti-patterns") &&
+      !hasMarkdownHeading(layer, 3, "反模式")
+    ) {
+      issues.push(`${id} missing anti-patterns`);
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+function splitGeneratedSkillLayers(content: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const matches = [...content.matchAll(/^##\s+(L[1-8])\b.*$/gm)];
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const start = match.index ?? 0;
+    const end =
+      i + 1 < matches.length ? matches[i + 1].index ?? content.length : content.length;
+    out.set(match[1], content.slice(start, end).trim());
+  }
+  return out;
+}
+
+function hasMarkdownHeading(content: string, level: number, label: string): boolean {
+  const hashes = "#".repeat(level);
+  const wanted = normalizeHeading(label);
+  const re = new RegExp(`^${hashes}\\s+(.+)$`, "gm");
+  for (const match of content.matchAll(re)) {
+    const got = normalizeHeading(match[1]);
+    if (got === wanted || got.includes(wanted) || wanted.includes(got)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function detectLayerTruncation(content: string): boolean {
+  if ((content.match(/^```/gm) || []).length % 2 !== 0) return true;
+  const normalized = content.trimEnd().replace(/\n---\s*$/, "").trimEnd();
+  const tail = normalized.split(/\r?\n/).slice(-4).join("\n").trimEnd();
+  return /(\.\.\.|\[…\]|[,，:：;；]|\-)$/.test(tail);
+}
+
+function shouldForceLlmValidation(): boolean {
+  return process.env.CODING_MEMORY_FORCE_LLM_VALIDATION === "1";
 }
 
 async function generateSingleLayer(
@@ -573,13 +700,9 @@ async function generateSingleLayer(
     ? `\n## Existing ${spec.id} From Previous Learn\nUse this as merge context for this layer only:\n\`\`\`markdown\n${truncateMiddle(existingLayer, 6000)}\n\`\`\`\n\nUpdate policy:\n- Preserve existing conventions/templates that are still supported by current code evidence.\n- Add new current-code patterns.\n- Remove or downgrade outdated, speculative, or unsupported content.\n- Do not copy stale examples unless the referenced files/patterns still appear in current evidence.\n`
     : "";
 
-  let content = (
-    await chatCompletion(config, {
-      messages: [
-        ...opts.messages,
-        {
-          role: "user",
-          content: `## Phase 3 — Generate ${spec.id}
+  const layerPrompt = {
+    role: "user" as const,
+    content: `## Phase 3 — Generate ${spec.id}
 
 Generate ONLY this one layer from the previous analysis. Do not output other layers.${priorContext}
 ${existingLayerContext}
@@ -624,19 +747,158 @@ Template hint:
 \`\`\`${spec.templateLanguage}
 ${spec.templateHint}
 \`\`\``,
-        },
-      ],
-      temperature: 0.3,
-      maxTokens: 4096,
-      diagnostics: diagnostics(opts.run, `P3-${spec.id}`),
-    })
-  ).trim();
+  };
+  const messages = [...opts.messages, layerPrompt];
+  const phase = `P3-${spec.id}`;
+  const useContinuationRepair = spec.id === "L8";
+  const layerMaxTokens = spec.id === "L8" ? 8192 : 4096;
+  const result = useContinuationRepair
+    ? await chatCompletionDetailed(config, {
+        messages,
+        temperature: 0.3,
+        maxTokens: layerMaxTokens,
+        requireComplete: true,
+        allowIncomplete: true,
+        diagnostics: diagnostics(opts.run, phase),
+      })
+    : {
+        content: await chatCompletion(config, {
+        messages,
+        temperature: 0.3,
+        maxTokens: layerMaxTokens,
+        requireComplete: true,
+        diagnostics: diagnostics(opts.run, phase),
+      }),
+        complete: true,
+        finishReason: undefined,
+      };
+
+  let content = result.content.trim();
+  if (!result.complete) {
+    if (!isLengthLikeFinishReason(result.finishReason)) {
+      throw new Error(
+        `LLM response for ${spec.id} was incomplete (finish_reason=${result.finishReason || "unknown"}).`,
+      );
+    }
+    const continuation = await continueTruncatedLayer(config, {
+      messages,
+      partial: content,
+      spec,
+      labels,
+      outputLanguage,
+      run: opts.run,
+    });
+    content = mergeLayerContinuation(content, continuation);
+  }
 
   content = unwrapMarkdownFence(content);
   if (!content.startsWith(`## ${spec.id}`)) {
     content = `${spec.header}\n\n${content}`;
   }
   return normalizeLayerSchema(content.trim(), spec, labels, outputLanguage);
+}
+
+async function continueTruncatedLayer(
+  config: LLMConfig,
+  opts: {
+    messages: Array<{
+      role: "system" | "user" | "assistant";
+      content: string;
+    }>;
+    partial: string;
+    spec: LayerSpec;
+    labels: ReturnType<typeof layerLabels>;
+    outputLanguage: CodingMemoryConfig["outputLanguage"];
+    run?: LearnRun;
+  },
+): Promise<string> {
+  return (
+    await chatCompletion(config, {
+      messages: [
+        ...opts.messages,
+        { role: "assistant", content: opts.partial },
+        {
+          role: "user",
+          content: `The ${opts.spec.id} layer response was truncated.
+
+Continue EXACTLY from where the previous response stopped.
+- Return ONLY the missing continuation text for ${opts.spec.id}.
+- Do not restart from the header unless the previous response is unrecoverable.
+- Close any open markdown code fence.
+- Ensure the final layer includes, in order: ### ${opts.labels.scope}, ### ${opts.labels.rules}, ### ${opts.labels.templates}, ### ${opts.labels.antiPatterns}, ### ${opts.labels.evidence}, ### ${opts.labels.gaps}.
+- If evidence is missing for any subsection, write "${noPatternText(opts.outputLanguage)}" instead of inventing.`,
+        },
+      ],
+      temperature: 0.2,
+      maxTokens: opts.spec.id === "L8" ? 8192 : 4096,
+      requireComplete: true,
+      diagnostics: diagnostics(opts.run, `P3-${opts.spec.id}-continue`),
+    })
+  ).trim();
+}
+
+function mergeLayerContinuation(partial: string, continuation: string): string {
+  const rawLeft = unwrapMarkdownFence(partial);
+  const partialHadTrailingBreak = /\r?\n\s*$/.test(rawLeft);
+  const left = rawLeft.trimEnd();
+  let right = unwrapMarkdownFence(continuation).trimStart();
+  if (!right) return closeDanglingFence(left);
+
+  const restartedAt = right.search(/^##\s+L8\b/m);
+  if (restartedAt >= 0) {
+    const restarted = right.slice(restartedAt).trim();
+    if (looksLikeCompleteLayer(restarted)) {
+      return closeDanglingFence(restarted);
+    }
+    right = right.slice(restartedAt).replace(/^##\s+L8\b.*(?:\r?\n)+/, "");
+  }
+
+  const overlap = longestTextOverlap(left, right);
+  const joiner =
+    overlap > 0
+      ? ""
+      : partialHadTrailingBreak || /^[#\-*+>|`]/.test(right)
+        ? "\n"
+        : "";
+  const merged = overlap > 0 ? left + right.slice(overlap) : `${left}${joiner}${right}`;
+  return closeDanglingFence(merged.trim());
+}
+
+function looksLikeCompleteLayer(content: string): boolean {
+  return (
+    /^##\s+L8\b/m.test(content) &&
+    /^###\s+/m.test(content) &&
+    /^###\s+(?:证据|Evidence)\s*$/im.test(content) &&
+    /^###\s+(?:缺口|Gaps)\s*$/im.test(content)
+  );
+}
+
+function longestTextOverlap(left: string, right: string): number {
+  const max = Math.min(2000, left.length, right.length);
+  for (let len = max; len >= 24; len--) {
+    if (left.endsWith(right.slice(0, len))) return len;
+  }
+  const leftLines = left.split(/\r?\n/);
+  const rightLines = right.split(/\r?\n/);
+  const maxLines = Math.min(20, leftLines.length, rightLines.length);
+  for (let count = maxLines; count >= 2; count--) {
+    const a = leftLines.slice(-count).join("\n").trim();
+    const b = rightLines.slice(0, count).join("\n").trim();
+    if (a && a === b) {
+      return rightLines.slice(0, count).join("\n").length;
+    }
+  }
+  return 0;
+}
+
+function closeDanglingFence(content: string): string {
+  const fenceCount = (content.match(/^```/gm) || []).length;
+  if (fenceCount % 2 === 0) return content.trim();
+  return `${content.trimEnd()}\n\`\`\``;
+}
+
+function isLengthLikeFinishReason(reason?: string): boolean {
+  return reason === "length" || reason === "max_tokens";
 }
 
 function assembleSkillDocument(opts: {

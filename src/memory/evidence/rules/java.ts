@@ -7,6 +7,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: "后端按 Maven/Gradle 多模块和业务域分层组织代码。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /pom\.xml$|build\.gradle$/.test(f.path) &&
@@ -17,6 +18,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "后端对外接口通过 Controller/API 层暴露，并使用注解声明路由和参数契约。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.java$/.test(f.path) &&
@@ -29,6 +31,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L3",
     category: "Naming",
     summary: "Java 数据契约采用 DTO/VO/DO/Mapper/Service 等后缀表达职责边界。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.java$/.test(f.path) &&
@@ -41,6 +44,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L3",
     category: "Typing",
     summary: "Java 模型类使用 Lombok 注解减少样板代码。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.java$/.test(f.path) &&
@@ -53,6 +57,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "持久化访问通过 Mapper/ORM 抽象集中处理。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       (/Mapper\.java$/.test(f.path) ||
@@ -66,6 +71,7 @@ export const javaEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Security",
     summary: "输入校验、认证授权或安全过滤通过框架注解/统一入口处理。",
+    appliesTo: ["java", "spring-boot", "mixed"],
     test: (f) => isProductionFile(f) && hasSecurityEvidence(f),
   },
 ];

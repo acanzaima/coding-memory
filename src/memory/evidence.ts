@@ -21,7 +21,7 @@ export function collectEvidence(
   group: LanguageGroup,
   projectType: string,
 ): EvidenceReport {
-  const items = evidenceRules.map((rule) => {
+  const items = evidenceRules.filter((rule) => ruleApplies(rule, projectType)).map((rule) => {
     const files = group.files.filter(rule.test).map((f) => f.path).sort();
     return {
       id: rule.id,
@@ -48,6 +48,49 @@ export function collectEvidence(
         a.id.localeCompare(b.id),
     ),
   };
+}
+
+function ruleApplies(rule: EvidenceRule, projectType: string): boolean {
+  if (!rule.appliesTo || rule.appliesTo.length === 0) return true;
+  const normalized = normalizeProjectType(projectType);
+  return rule.appliesTo.some((target) => {
+    const t = normalizeProjectType(target);
+    if (t === "frontend") return isFrontendProjectType(normalized);
+    if (t === "node") return isNodeProjectType(normalized);
+    if (t === "java") return normalized === "java" || normalized === "spring-boot";
+    if (t === "mixed") return normalized.includes("mixed") || normalized === "unknown";
+    return normalized === t;
+  });
+}
+
+function normalizeProjectType(value: string): string {
+  return value.trim().toLowerCase().replace(/_/g, "-");
+}
+
+function isFrontendProjectType(projectType: string): boolean {
+  return [
+    "vue",
+    "vue2",
+    "vue3",
+    "react",
+    "nextjs",
+    "angular",
+    "svelte",
+    "astro",
+    "frontend",
+  ].includes(projectType);
+}
+
+function isNodeProjectType(projectType: string): boolean {
+  return [
+    "node",
+    "nodejs",
+    "express",
+    "koa",
+    "fastify",
+    "nestjs",
+    "nextjs",
+  ].includes(projectType);
 }
 
 export function renderEvidenceMarkdown(

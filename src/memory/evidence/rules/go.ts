@@ -7,6 +7,7 @@ export const goEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: "Go 项目通过 cmd/internal/pkg 等目录约定表达可执行入口和内部包边界。",
+    appliesTo: ["go", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".go" &&
@@ -19,6 +20,7 @@ export const goEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "Go 服务通过 handler/router 目录、net/http 或常见 Web 框架暴露 HTTP API。",
+    appliesTo: ["go", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".go" &&
@@ -32,6 +34,7 @@ export const goEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Reliability",
     summary: "Go 实现中显式传递 context 并对错误进行早返回处理。",
+    appliesTo: ["go", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".go" &&
@@ -45,6 +48,7 @@ export const goEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "Go 数据访问通过 repository/store/model 或 database/sql、gorm、sqlc 等层收敛。",
+    appliesTo: ["go", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".go" &&

@@ -7,6 +7,7 @@ export const pythonEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "Python 服务通过 FastAPI/Flask/Django 路由、view 或 router 暴露 HTTP API。",
+    appliesTo: ["python", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".py" &&
@@ -20,6 +21,7 @@ export const pythonEvidenceRules: EvidenceRule[] = [
     layer: "L3",
     category: "Typing",
     summary: "Python 数据契约通过 Pydantic、dataclass、serializer 或 ORM model 显式建模。",
+    appliesTo: ["python", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".py" &&
@@ -33,6 +35,7 @@ export const pythonEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: "Python 代码按 app/service/repository/router 等职责目录组织模块边界。",
+    appliesTo: ["python", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".py" &&
@@ -47,6 +50,7 @@ export const pythonEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "Python 数据访问通过 ORM session、repository、model 或 migration 层集中处理。",
+    appliesTo: ["python", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".py" &&

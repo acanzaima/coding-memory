@@ -7,6 +7,7 @@ export const vueEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Component",
     summary: "Vue 页面/组件使用单文件组件组织模板、脚本和样式。",
+    appliesTo: ["vue", "vue2", "vue3", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".vue" &&

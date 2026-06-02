@@ -16,6 +16,17 @@ export interface ChatCompletionOptions {
   maxTokens?: number;
   responseFormat?: "text" | "json_object";
   diagnostics?: ChatCompletionDiagnostics;
+  /**
+   * Reject responses that the provider explicitly reports as truncated.
+   * This is useful for phases where partial markdown would become a bad artifact.
+   */
+  requireComplete?: boolean;
+  /**
+   * Return partial content when requireComplete detects truncation.
+   * Callers can then repair/continue deterministically instead of replaying
+   * the same large prompt.
+   */
+  allowIncomplete?: boolean;
 }
 
 export interface ChatCompletionDiagnostics {
@@ -29,6 +40,9 @@ export interface ChatCompletionDiagnosticEvent {
   model: string;
   attempt: number;
   maxTokens: number;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
   requestChars: number;
   responseChars: number;
   ok: boolean;
@@ -38,6 +52,13 @@ export interface ChatCompletionDiagnosticEvent {
   error?: string;
 }
 
+export interface ChatCompletionResult {
+  content: string;
+  finishReason?: string;
+  usage?: ChatCompletionUsage;
+  complete: boolean;
+}
+
 /**
  * Send a chat completion request to the configured LLM.
  */
@@ -45,38 +66,93 @@ export async function chatCompletion(
   config: LLMConfig,
   options: ChatCompletionOptions,
 ): Promise<string> {
+  const result = await chatCompletionDetailed(config, options);
+  return result.content;
+}
+
+/**
+ * Send a chat completion request and return response metadata.
+ */
+export async function chatCompletionDetailed(
+  config: LLMConfig,
+  options: ChatCompletionOptions,
+): Promise<ChatCompletionResult> {
   const baseURL = config.baseURL || getProviderBaseURL(config.provider);
 
   // Special handling for Anthropic - use messages API
   if (config.provider === "anthropic") {
-    return anthropicCompletion(config, options);
+    return anthropicCompletionDetailed(config, options);
   }
 
   const url = joinApiPath(baseURL, "/chat/completions");
   let lastEmpty: ChatCompletionResponse | null = null;
+  let lastTruncated: ChatCompletionResponse | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     const body = buildChatBody(config, options, attempt);
     let data: ChatCompletionResponse;
+    const startedAt = new Date().toISOString();
+    const startedMs = Date.now();
     try {
       data = await callWithRetry(url, config, body);
     } catch (err) {
+      const finishedAt = new Date().toISOString();
       reportDiagnostic(config, options, body, attempt, {
         ok: false,
         responseChars: 0,
+        startedAt,
+        finishedAt,
+        durationMs: Date.now() - startedMs,
         error: err instanceof Error ? err.message : String(err),
       });
       throw err;
     }
+    const finishedAt = new Date().toISOString();
+    const durationMs = Date.now() - startedMs;
 
-    const content = data.choices?.[0]?.message?.content;
+    const choice = data.choices?.[0];
+    const content = choice?.message?.content;
     if (content) {
+      if (options.requireComplete && isIncompleteFinishReason(choice?.finish_reason)) {
+        lastTruncated = data;
+        reportDiagnostic(config, options, body, attempt, {
+          ok: false,
+          responseChars: content.length,
+          finishReason: choice?.finish_reason,
+          usage: data.usage,
+          startedAt,
+          finishedAt,
+          durationMs,
+          emptyReason: describeTruncatedResponse(data, content.length),
+        });
+        if (options.allowIncomplete) {
+          return {
+            content,
+            finishReason: choice?.finish_reason,
+            usage: data.usage,
+            complete: false,
+          };
+        }
+        if (attempt < 2) {
+          await sleep(500 * (attempt + 1));
+          continue;
+        }
+        break;
+      }
       reportDiagnostic(config, options, body, attempt, {
         ok: true,
         responseChars: content.length,
-        finishReason: data.choices?.[0]?.finish_reason,
+        finishReason: choice?.finish_reason,
         usage: data.usage,
+        startedAt,
+        finishedAt,
+        durationMs,
       });
-      return content;
+      return {
+        content,
+        finishReason: choice?.finish_reason,
+        usage: data.usage,
+        complete: true,
+      };
     }
 
     lastEmpty = data;
@@ -85,10 +161,20 @@ export async function chatCompletion(
       responseChars: 0,
       finishReason: data.choices?.[0]?.finish_reason,
       usage: data.usage,
+      startedAt,
+      finishedAt,
+      durationMs,
       emptyReason: describeEmptyResponse(data),
     });
     if (!shouldRetryEmptyResponse(data, attempt)) break;
     await sleep(500 * (attempt + 1));
+  }
+
+  if (lastTruncated) {
+    throw new Error(
+      `LLM response was truncated (${describeTruncatedResponse(lastTruncated)}). ` +
+        "Try increasing model maxTokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
+    );
   }
 
   throw new Error(
@@ -109,7 +195,7 @@ interface ChatCompletionResponse {
   usage?: ChatCompletionUsage;
 }
 
-interface ChatCompletionUsage {
+export interface ChatCompletionUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
@@ -127,6 +213,9 @@ function reportDiagnostic(
   result: {
     ok: boolean;
     responseChars: number;
+    startedAt?: string;
+    finishedAt?: string;
+    durationMs?: number;
     finishReason?: string;
     usage?: ChatCompletionUsage;
     emptyReason?: string;
@@ -146,6 +235,9 @@ function reportDiagnostic(
       model: config.model,
       attempt: attempt + 1,
       maxTokens,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      durationMs: result.durationMs,
       requestChars: JSON.stringify(body.messages || []).length,
       responseChars: result.responseChars,
       ok: result.ok,
@@ -202,6 +294,10 @@ function shouldRetryEmptyResponse(
   );
 }
 
+function isIncompleteFinishReason(reason?: string): boolean {
+  return reason === "length" || reason === "max_tokens" || reason === "content_filter";
+}
+
 function describeEmptyResponse(data: ChatCompletionResponse): string {
   const choice = data.choices?.[0];
   const details = data.usage?.completion_tokens_details;
@@ -223,6 +319,19 @@ function describeEmptyResponse(data: ChatCompletionResponse): string {
         : null,
   ].filter(Boolean);
   return parts.join(", ") || "no diagnostic fields";
+}
+
+function describeTruncatedResponse(
+  data: ChatCompletionResponse,
+  responseChars?: number,
+): string {
+  const base = describeEmptyResponse(data);
+  return [
+    base,
+    responseChars !== undefined ? `response_chars=${responseChars}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 async function callWithRetry(
@@ -278,10 +387,10 @@ function sleep(ms: number): Promise<void> {
 /**
  * Anthropic-specific completion using Messages API.
  */
-async function anthropicCompletion(
+async function anthropicCompletionDetailed(
   config: LLMConfig,
   options: ChatCompletionOptions,
-): Promise<string> {
+): Promise<ChatCompletionResult> {
   const url = anthropicMessagesURL(
     config.baseURL || getProviderBaseURL(config.provider),
   );
@@ -309,6 +418,8 @@ async function anthropicCompletion(
   }
 
   let response: Response;
+  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
   try {
     response = await fetch(url, {
       method: "POST",
@@ -321,19 +432,28 @@ async function anthropicCompletion(
       body: JSON.stringify(body),
     });
   } catch (err) {
+    const finishedAt = new Date().toISOString();
     reportDiagnostic(config, options, body, 0, {
       ok: false,
       responseChars: 0,
+      startedAt,
+      finishedAt,
+      durationMs: Date.now() - startedMs,
       error: err instanceof Error ? err.message : String(err),
     });
     throw err;
   }
+  const finishedAt = new Date().toISOString();
+  const durationMs = Date.now() - startedMs;
 
   if (!response.ok) {
     const errorText = await response.text();
     reportDiagnostic(config, options, body, 0, {
       ok: false,
       responseChars: 0,
+      startedAt,
+      finishedAt,
+      durationMs,
       error: `Anthropic API error (${response.status}): ${errorText.slice(0, 500)}`,
     });
     throw new Error(
@@ -343,6 +463,8 @@ async function anthropicCompletion(
 
   const data = (await response.json()) as {
     content: Array<{ type: string; text: string }>;
+    stop_reason?: string;
+    usage?: ChatCompletionUsage;
   };
 
   const textContent = data.content?.find((c) => c.type === "text");
@@ -350,16 +472,54 @@ async function anthropicCompletion(
     reportDiagnostic(config, options, body, 0, {
       ok: false,
       responseChars: 0,
+      startedAt,
+      finishedAt,
+      durationMs,
       emptyReason: "Anthropic returned empty response",
     });
     throw new Error("Anthropic returned empty response");
   }
 
+  if (options.requireComplete && isIncompleteFinishReason(data.stop_reason)) {
+    reportDiagnostic(config, options, body, 0, {
+      ok: false,
+      responseChars: textContent.text.length,
+      finishReason: data.stop_reason,
+      usage: data.usage,
+      startedAt,
+      finishedAt,
+      durationMs,
+      emptyReason: `response truncated, response_chars=${textContent.text.length}`,
+    });
+    if (options.allowIncomplete) {
+      return {
+        content: textContent.text,
+        finishReason: data.stop_reason,
+        usage: data.usage,
+        complete: false,
+      };
+    }
+    throw new Error(
+      `Anthropic response was truncated (finish_reason=${data.stop_reason}, response_chars=${textContent.text.length}). ` +
+        "Try increasing model maxTokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
+    );
+  }
+
   reportDiagnostic(config, options, body, 0, {
     ok: true,
     responseChars: textContent.text.length,
+    finishReason: data.stop_reason,
+    usage: data.usage,
+    startedAt,
+    finishedAt,
+    durationMs,
   });
-  return textContent.text;
+  return {
+    content: textContent.text,
+    finishReason: data.stop_reason,
+    usage: data.usage,
+    complete: true,
+  };
 }
 
 /**

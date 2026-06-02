@@ -7,6 +7,7 @@ export const rustEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: "Rust crate 通过 lib/main、mod 声明和 src 子模块组织边界。",
+    appliesTo: ["rust", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rs" &&
@@ -19,6 +20,7 @@ export const rustEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "Rust Web 服务通过 axum/actix/rocket 路由或 handler 函数暴露 HTTP API。",
+    appliesTo: ["rust", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rs" &&
@@ -32,6 +34,7 @@ export const rustEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Reliability",
     summary: "Rust 实现通过 Result、? 操作符或 thiserror/anyhow 形成显式错误流。",
+    appliesTo: ["rust", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rs" &&
@@ -45,6 +48,7 @@ export const rustEvidenceRules: EvidenceRule[] = [
     layer: "L3",
     category: "Typing",
     summary: "Rust 数据契约通过 struct/enum 与 serde 派生显式建模。",
+    appliesTo: ["rust", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".rs" &&

@@ -32,10 +32,48 @@ export interface LearnRunManifest {
   retryMode: boolean;
   phases: Record<string, LearnRunPhaseState>;
   layers: Record<string, LearnRunLayerState>;
+  metrics?: LearnRunMetrics;
   error?: {
     message: string;
     at: string;
   };
+}
+
+export interface LearnRunMetrics {
+  version: 1;
+  runId: string;
+  status: LearnRunManifest["status"];
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  llmRequests: number;
+  conversationTurns: number;
+  llmRetries: number;
+  llmDurationMs: number;
+  successfulRequests: number;
+  failedRequests: number;
+  requestChars: number;
+  responseChars: number;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  phases: LearnRunPhaseMetrics[];
+}
+
+export interface LearnRunPhaseMetrics {
+  phase: string;
+  requests: number;
+  conversationTurns: number;
+  retries: number;
+  durationMs: number;
+  successfulRequests: number;
+  failedRequests: number;
+  responseChars: number;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
 }
 
 export interface LearnRunPhaseState {
@@ -114,20 +152,28 @@ export function openLearnRun(input: CreateLearnRunInput): LearnRun {
   return run;
 }
 
-export function completeLearnRun(run: LearnRun): void {
+export function completeLearnRun(run: LearnRun): LearnRunMetrics {
   run.manifest.status = "complete";
   run.manifest.updatedAt = new Date().toISOString();
+  const metrics = collectLearnRunMetrics(run);
+  run.manifest.metrics = metrics;
   writeManifest(run);
+  writeJson(join(run.runDir, "METRICS.json"), metrics);
+  return metrics;
 }
 
-export function failLearnRun(run: LearnRun, error: unknown): void {
+export function failLearnRun(run: LearnRun, error: unknown): LearnRunMetrics {
   run.manifest.status = "failed";
   run.manifest.updatedAt = new Date().toISOString();
   run.manifest.error = {
     message: error instanceof Error ? error.message : String(error),
     at: new Date().toISOString(),
   };
+  const metrics = collectLearnRunMetrics(run);
+  run.manifest.metrics = metrics;
   writeManifest(run);
+  writeJson(join(run.runDir, "METRICS.json"), metrics);
+  return metrics;
 }
 
 export function readPhaseCheckpoint(
@@ -205,8 +251,149 @@ export function recordLlmDiagnostic(
   }
 }
 
+export function collectLearnRunMetrics(run: LearnRun): LearnRunMetrics {
+  const events = readDiagnosticEvents(run);
+  const finishedAt = run.manifest.updatedAt || new Date().toISOString();
+  const metrics: LearnRunMetrics = {
+    version: 1,
+    runId: run.manifest.runId,
+    status: run.manifest.status,
+    startedAt: run.manifest.createdAt,
+    finishedAt,
+    durationMs: Math.max(
+      0,
+      Date.parse(finishedAt) - Date.parse(run.manifest.createdAt),
+    ),
+    llmRequests: 0,
+    conversationTurns: 0,
+    llmRetries: 0,
+    llmDurationMs: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    requestChars: 0,
+    responseChars: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+    phases: [],
+  };
+  const byPhase = new Map<string, LearnRunPhaseMetrics>();
+
+  for (const event of events) {
+    const phaseName = typeof event.phase === "string" ? event.phase : "unknown";
+    const phase = getPhaseMetrics(byPhase, phaseName);
+    const attempt =
+      typeof event.attempt === "number" && event.attempt > 0
+        ? event.attempt
+        : 1;
+    const ok = event.ok === true;
+    const durationMs = numberValue(event.durationMs);
+    const requestChars = numberValue(event.requestChars);
+    const responseChars = numberValue(event.responseChars);
+    const usage = event.usage || {};
+    const promptTokens = numberValue(usage.prompt_tokens);
+    const completionTokens = numberValue(usage.completion_tokens);
+    const reasoningTokens = numberValue(
+      usage.completion_tokens_details?.reasoning_tokens ??
+        usage.reasoning_tokens,
+    );
+    const totalTokens = numberValue(usage.total_tokens);
+
+    metrics.llmRequests += 1;
+    phase.requests += 1;
+    if (attempt === 1) {
+      metrics.conversationTurns += 1;
+      phase.conversationTurns += 1;
+    } else {
+      metrics.llmRetries += 1;
+      phase.retries += 1;
+    }
+    if (ok) {
+      metrics.successfulRequests += 1;
+      phase.successfulRequests += 1;
+    } else {
+      metrics.failedRequests += 1;
+      phase.failedRequests += 1;
+    }
+    metrics.requestChars += requestChars;
+    metrics.responseChars += responseChars;
+    metrics.llmDurationMs += durationMs;
+    metrics.promptTokens += promptTokens;
+    metrics.completionTokens += completionTokens;
+    metrics.reasoningTokens += reasoningTokens;
+    metrics.totalTokens += totalTokens;
+
+    phase.durationMs += durationMs;
+    phase.responseChars += responseChars;
+    phase.promptTokens += promptTokens;
+    phase.completionTokens += completionTokens;
+    phase.reasoningTokens += reasoningTokens;
+    phase.totalTokens += totalTokens;
+  }
+
+  metrics.phases = [...byPhase.values()];
+  return metrics;
+}
+
 export function stableHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+type DiagnosticRecord = ChatCompletionDiagnosticEvent & {
+  at?: string;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    reasoning_tokens?: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
+};
+
+function readDiagnosticEvents(run: LearnRun): DiagnosticRecord[] {
+  const raw = readTextIfExists(join(run.runDir, "calls.jsonl"));
+  if (!raw) return [];
+  const out: DiagnosticRecord[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line) as DiagnosticRecord);
+    } catch {
+      // Keep metrics best-effort; a broken diagnostic line should not break learn.
+    }
+  }
+  return out;
+}
+
+function getPhaseMetrics(
+  byPhase: Map<string, LearnRunPhaseMetrics>,
+  phaseName: string,
+): LearnRunPhaseMetrics {
+  const existing = byPhase.get(phaseName);
+  if (existing) return existing;
+  const created: LearnRunPhaseMetrics = {
+    phase: phaseName,
+    requests: 0,
+    conversationTurns: 0,
+    retries: 0,
+    durationMs: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    responseChars: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+  };
+  byPhase.set(phaseName, created);
+  return created;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function findRunToResume(

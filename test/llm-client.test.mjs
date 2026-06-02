@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 
-import { testConnection } from "../dist/llm/client.js";
+import { chatCompletion, testConnection } from "../dist/llm/client.js";
 
 const { server, url, requests } = await startMockServer();
 
@@ -49,6 +49,24 @@ try {
   assert.equal(customHeaders.ok, true);
   assert.equal(requests[3].headers.authorization, "Bearer wandb-key");
   assert.equal(requests[3].headers["openai-project"], "team/project");
+
+  const beforeComplete = requests.length;
+  const complete = await chatCompletion(
+    {
+      provider: "openai-compatible",
+      model: "complete-test",
+      apiKey: "test-key",
+      baseURL: url,
+    },
+    {
+      messages: [{ role: "user", content: "Need complete markdown" }],
+      maxTokens: 128,
+      requireComplete: true,
+    },
+  );
+  assert.equal(complete, "complete after retry");
+  assert.equal(requests[beforeComplete].body.max_tokens, 128);
+  assert.equal(requests[beforeComplete + 1].body.max_tokens, 4224);
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
@@ -70,6 +88,31 @@ async function startMockServer() {
       res.writeHead(200, { "content-type": "application/json" });
       if (req.url === "/v1/messages") {
         res.end(JSON.stringify({ content: [{ type: "text", text: "pong" }] }));
+      } else if (
+        body.model === "complete-test" &&
+        body.max_tokens === 128
+      ) {
+        res.end(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "length",
+                message: { content: "partial response" },
+              },
+            ],
+          }),
+        );
+      } else if (body.model === "complete-test") {
+        res.end(
+          JSON.stringify({
+            choices: [
+              {
+                finish_reason: "stop",
+                message: { content: "complete after retry" },
+              },
+            ],
+          }),
+        );
       } else {
         res.end(JSON.stringify({ choices: [{ message: { content: "pong" } }] }));
       }

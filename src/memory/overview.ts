@@ -58,6 +58,27 @@ interface TypeData {
   evidence: EvidenceStats;
 }
 
+interface TraceFile {
+  rules?: TraceRule[];
+  templates?: TraceTemplate[];
+}
+
+interface TraceRule {
+  layer: string;
+  text: string;
+  tags?: string[];
+  files?: string[];
+  evidenceIds?: string[];
+  status?: "active" | "weak" | "pending" | "stale";
+}
+
+interface TraceTemplate {
+  layer: string;
+  name: string;
+  status?: "active" | "missing" | "pending";
+  hidden?: boolean;
+}
+
 interface CollectedData {
   skills: ReturnType<typeof listSkills>;
   typeMap: Map<string, TypeData>;
@@ -222,9 +243,9 @@ export function generateMasterOverview(
         : "从反模式章节中提取的禁止做法：",
       "",
     );
-    const unique = [
-      ...new Set([...data.typeMap.values()].flatMap((td) => td.antiPatterns)),
-    ];
+    const unique = dedupeAntiPatterns(
+      [...data.typeMap.values()].flatMap((td) => td.antiPatterns),
+    );
     for (const ap of unique.slice(0, MAX_NEVER_DO)) lines.push(`- ${ap}`);
     if (unique.length > MAX_NEVER_DO) {
       lines.push(
@@ -583,37 +604,32 @@ function collectOverviewData(lock: SkillsLock, refDir: string): CollectedData {
   for (const [, td] of typeMap) {
     const content = readTypeLayers(refDir, td.projType);
     if (!content) continue;
-    const ruleLines = content.split("\n");
+    const trace = readTraceFile(refDir, td.projType);
 
-    for (let i = 0; i < ruleLines.length; i++) {
-      const line = ruleLines[i];
-      if (!line.includes("[个人偏好]") || isPendingLine(line)) continue;
-      let cleaned = cleanRuleLine(line);
-      if (!isActionableRule(cleaned)) continue;
-      cleaned = mergeContinuationIfNeeded(cleaned, ruleLines, i);
-      if (!td.hardRules.includes(cleaned)) td.hardRules.push(cleaned);
+    const hardRuleSource =
+      trace && extractTraceRules(trace, ["[个人偏好]", "[必须]"]).length > 0
+        ? extractTraceRules(trace, ["[个人偏好]", "[必须]"])
+        : extractTaggedRules(content, ["[个人偏好]", "[必须]"]);
+    for (const rule of hardRuleSource) {
+      if (!td.hardRules.includes(rule)) td.hardRules.push(rule);
     }
     td.rawHardRuleCount = td.hardRules.length;
     td.hardRules = selectTopRules(td.hardRules, MAX_HARD_RULES_PER_TYPE);
 
-    const rawTypeRules: string[] = [];
-    for (let i = 0; i < ruleLines.length; i++) {
-      const line = ruleLines[i];
-      if (
-        !line.includes("[项目特定]") ||
-        !line.includes("[必须]") ||
-        isPendingLine(line)
-      ) {
-        continue;
-      }
-      const cleaned = mergeContinuationIfNeeded(cleanRuleLine(line), ruleLines, i);
-      if (!isActionableRule(cleaned)) continue;
-      if (!rawTypeRules.includes(cleaned)) rawTypeRules.push(cleaned);
-    }
+    const traceTypeRules = trace
+      ? extractTraceRules(trace, ["[项目特定]", "[必须]"])
+      : [];
+    const rawTypeRules =
+      traceTypeRules.length > 0
+        ? traceTypeRules
+        : extractTaggedRules(content, ["[项目特定]", "[必须]"]);
     td.rawTypeRuleCount = rawTypeRules.length;
     td.typeRules = selectTopRules(rawTypeRules, MAX_TYPE_RULES_PER_TYPE);
 
-    td.templates = selectTopTemplates(parseTemplateBlocks(content));
+    const traceTemplates = trace ? parseTraceTemplates(trace) : [];
+    td.templates = selectTopTemplates(
+      traceTemplates.length > 0 ? traceTemplates : parseTemplateBlocks(content),
+    );
     td.antiPatterns = extractAntiPatterns(content);
     td.decisionTable = extractDecisionTable(content);
     td.gapStats = countGaps(content);
@@ -665,6 +681,42 @@ function readEvidenceStats(refDir: string, projType: string): EvidenceStats {
   }
 }
 
+function readTraceFile(refDir: string, projType: string): TraceFile | null {
+  const tracePath = join(refDir, projType, "TRACE.json");
+  try {
+    if (!existsSync(tracePath)) return null;
+    return JSON.parse(readFileSync(tracePath, "utf-8")) as TraceFile;
+  } catch {
+    return null;
+  }
+}
+
+function extractTraceRules(trace: TraceFile, requiredTags: string[]): string[] {
+  const out: string[] = [];
+  for (const rule of trace.rules || []) {
+    if (rule.status !== "active") continue;
+    const tags = normalizeRuleTags(rule.tags || []);
+    if (!requiredTags.every((tag) => hasEquivalentTag(tags, tag))) continue;
+    if ((rule.files || []).length === 0 && (rule.evidenceIds || []).length === 0) {
+      continue;
+    }
+    const cleaned = cleanRuleLine(rule.text || "");
+    if (!isActionableRule(cleaned)) continue;
+    if (!out.includes(cleaned)) out.push(cleaned);
+  }
+  return out;
+}
+
+function parseTraceTemplates(trace: TraceFile): TemplateInfo[] {
+  return (trace.templates || []).map((template) => ({
+    name: normalizeTemplateName(template.name || "Template"),
+    layer: template.layer || "L?",
+    unsafe: template.status === "pending",
+    missing: template.status === "missing",
+    hidden: template.hidden,
+  }));
+}
+
 function emptyEvidenceStats(missing: boolean): EvidenceStats {
   return {
     itemCount: 0,
@@ -689,30 +741,48 @@ function extractProjType(skillPath: string): string {
 }
 
 function cleanRuleLine(line: string): string {
-  let cleaned = line
+  let cleaned = stripMarkdownStrongMarkers(line)
     .trim()
-    .replace(/^[-*]\s*/, "")
-    .replace(/\s*\[(?:个人偏好|项目特定|必须|推荐|可选)\]\s*/g, " ")
-    .replace(/\*\*/g, " ")
+    .replace(/^\*\*(.+?)\*\*$/, "$1")
+    .replace(/^(?:[-*]|\d+\.)\s+/, "")
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/\s*\[(?:个人偏好|项目特定|必须|推荐|可选|Personal Preference|Project-Specific|Must|Recommended|Optional)\]\s*/gi, " ")
+    .replace(/[【】]/g, " ")
+    .replace(/\*?\s*(?:证据|Evidence)[：:][^*]*\*?/gi, " ")
+    .replace(/[（(]\s*(?:证据|Evidence)[：:][^）)]*[）)]/gi, " ")
+    .replace(/^\[(.+)\]$/, "$1")
     .trim();
-  while (/^[-*]\s+/.test(cleaned)) {
-    cleaned = cleaned.replace(/^[-*]\s+/, "").trim();
+  while (/^(?:[-*]|\d+\.)\s+/.test(cleaned)) {
+    cleaned = cleaned.replace(/^(?:[-*]|\d+\.)\s+/, "").trim();
   }
-  return cleaned
+  cleaned = cleaned
     .replace(/\s+([：:])\s*/g, "$1")
+    .replace(/([：:])\s*[：:]+/g, "$1")
+    .replace(/^(.{2,80})[：:]\s*\1[：:]/, "$1:")
+    .replace(/^[\s：:]+/, "")
+    .replace(/^\[['"][^\]]+\][：:]\s*/, "")
     .replace(/\s+/g, " ")
     .trim();
+  return cleaned;
+}
+
+function stripMarkdownStrongMarkers(text: string): string {
+  return text.replace(/(^|[^/])\*\*/g, "$1");
 }
 
 function isPendingLine(text: string): boolean {
-  return text.includes("[待验证]") || text.includes("### 待验证");
+  return text.includes("[待验证]") || /^###\s+(?:待验证|缺口|Gaps|To Verify)\b/i.test(text.trim());
 }
 
 function isActionableRule(text: string): boolean {
-  if (text.length <= 5) return false;
+  if (text.length <= 12) return false;
   if (/[：:]$/.test(text.trim())) return false;
+  if (/^#{1,6}\s+/.test(text)) return false;
+  if (/^(?:安全|性能|配置管理|CSS 类名|Props 类型声明|组件命名|函数与变量命名)$/.test(text.trim())) {
+    return false;
+  }
   if (
-    /推测|可能|未发现|未展示|推断|无现有模式|⚠️|\[待验证\]/.test(text) ||
+    /推测|可能|未发现|未展示|未出现|未启用|未见|推断|无现有模式|无显式|当前无|不存在|通过文件片段推断|早期分析|L8\s*中提及|⚠️|\[待验证\]/.test(text) ||
     /^如[：:]/.test(text)
   ) {
     return false;
@@ -724,6 +794,221 @@ function isActionableAntiPattern(text: string): boolean {
   if (!isActionableRule(text)) return false;
   if (/建议|推荐使用|可考虑|待验证/.test(text)) return false;
   return true;
+}
+
+interface ParsedRuleHeading {
+  title: string;
+  tags: string[];
+}
+
+interface ExtractedRule {
+  text: string;
+  tags: string[];
+}
+
+function extractTaggedRules(content: string, requiredTags: string[]): string[] {
+  const out: string[] = [];
+  for (const rule of extractStructuredRules(content)) {
+    if (!requiredTags.every((tag) => rule.tags.includes(tag))) continue;
+    if (isPendingLine(rule.text) || !isActionableRule(rule.text)) continue;
+    if (!out.includes(rule.text)) out.push(rule.text);
+  }
+  return out;
+}
+
+function extractStructuredRules(content: string): ExtractedRule[] {
+  const out: ExtractedRule[] = [];
+  for (const section of extractLevel3Sections(content)) {
+    if (isRuleSectionTitle(section.title)) {
+      out.push(...parseRuleBody(section.body));
+      continue;
+    }
+    if (!isReservedSectionTitle(section.title)) {
+      out.push(...parseRuleBody(section.body, section.title));
+    }
+  }
+  return dedupeRules(out);
+}
+
+function parseRuleBody(body: string, fallbackTitle = ""): ExtractedRule[] {
+  const out: ExtractedRule[] = [];
+  const lines = body.split("\n");
+  let group: ParsedRuleHeading | null = fallbackTitle
+    ? parseRuleHeading(fallbackTitle)
+    : null;
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || !trimmed) continue;
+    const heading = parseRuleHeadingLine(trimmed);
+    if (heading) {
+      group = heading;
+      continue;
+    }
+    if (!isTopLevelListItem(raw)) continue;
+    const block = collectListBlock(lines, i);
+    i = block.nextIndex - 1;
+    const rule = composeRule(block.lines, group);
+    if (rule) out.push(rule);
+  }
+  return out;
+}
+
+function parseRuleHeadingLine(trimmed: string): ParsedRuleHeading | null {
+  if (/^#{1,3}\s+/.test(trimmed)) return null;
+  if (/^(?:\*\*)?(?:证据|Evidence)(?:\*\*)?[：:]/i.test(trimmed)) return null;
+  if (/^(?:\[(?:个人偏好|项目特定|必须|推荐|可选)\]\s*)+$/.test(trimmed)) {
+    return parseRuleHeading(trimmed);
+  }
+  if (/^####\s+/.test(trimmed)) {
+    return parseRuleHeading(trimmed.replace(/^####\s+/, ""));
+  }
+  if (/^\*\*.+\*\*/.test(trimmed) && !/^[-*]\s+/.test(trimmed)) {
+    return parseRuleHeading(trimmed);
+  }
+  return null;
+}
+
+function parseRuleHeading(text: string): ParsedRuleHeading {
+  return {
+    title: cleanRuleLine(text),
+    tags: extractTags(text),
+  };
+}
+
+function isTopLevelListItem(raw: string): boolean {
+  return /^\s{0,1}(?:[-*]|\d+\.)\s+/.test(raw);
+}
+
+function collectListBlock(
+  lines: string[],
+  startIndex: number,
+): { lines: string[]; nextIndex: number } {
+  const collected = [lines[startIndex]];
+  let inFence = false;
+  for (let i = startIndex + 1; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("```")) {
+      inFence = !inFence;
+      collected.push(raw);
+      continue;
+    }
+    if (!inFence) {
+      if (/^###\s+/.test(trimmed) || /^---\s*$/.test(trimmed)) {
+        return { lines: collected, nextIndex: i };
+      }
+      if (parseRuleHeadingLine(trimmed) || isTopLevelListItem(raw)) {
+        return { lines: collected, nextIndex: i };
+      }
+    }
+    collected.push(raw);
+  }
+  return { lines: collected, nextIndex: lines.length };
+}
+
+function composeRule(
+  blockLines: string[],
+  group: ParsedRuleHeading | null,
+): ExtractedRule | null {
+  const firstRaw = blockLines[0]?.trim().replace(/^(?:[-*]|\d+\.)\s+/, "") || "";
+  const item = parseRuleHeading(firstRaw);
+  const tags = normalizeRuleTags([
+    ...(group?.tags || []),
+    ...blockLines.flatMap((line) => extractTags(line)),
+    ...item.tags,
+  ]);
+  const bodyParts = blockLines
+    .map((line, index) => cleanRuleBodyLine(line, index === 0))
+    .filter((line) => line && !isNonRuleObservation(line));
+  if (bodyParts.length === 0) return null;
+
+  const hasContinuation = bodyParts.length > 1;
+  const firstIsTitle =
+    hasContinuation &&
+    (/^\*\*.+\*\*/.test(firstRaw) ||
+      item.title.length <= 28 ||
+      normalizeRule(item.title) === normalizeRule(group?.title || ""));
+  const body = (firstIsTitle ? bodyParts.slice(1) : bodyParts)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const titles = firstIsTitle
+    ? [group?.title || "", item.title].filter(Boolean)
+    : item.tags.length === 0
+      ? [group?.title || ""].filter(Boolean)
+      : [];
+  const title = uniqueTitles(titles).join(" / ");
+  const text = title && body ? `${title}：${body}` : body;
+  if (!text) return null;
+  return { text: cleanRuleLine(text), tags };
+}
+
+function cleanRuleBodyLine(line: string, firstLine: boolean): string {
+  let cleaned = line.trim();
+  if (!cleaned || cleaned.startsWith("```")) return "";
+  cleaned = cleaned.replace(/^(?:[-*]|\d+\.)\s+/, "").trim();
+  if (!firstLine) cleaned = cleaned.replace(/^[-*]\s+/, "").trim();
+  return cleanRuleLine(cleaned);
+}
+
+function extractTags(text: string): string[] {
+  return [...text.matchAll(/\[[^\]]+\]/g)].map((m) => m[0]);
+}
+
+function normalizeRuleTags(tags: string[]): string[] {
+  const unique = [...new Set(tags)];
+  const hasScope = unique.some((tag) => /\[?(?:个人偏好|项目特定|Personal Preference|Project-Specific)\]?/i.test(tag));
+  const hasConfidence = unique.some((tag) => /\[?(?:必须|推荐|可选|Must|Recommended|Optional)\]?/i.test(tag));
+  if (!hasScope && hasConfidence) unique.unshift("[项目特定]");
+  return unique;
+}
+
+function hasEquivalentTag(tags: string[], required: string): boolean {
+  const aliases: Record<string, string[]> = {
+    "[项目特定]": ["[项目特定]", "[Project-Specific]"],
+    "[个人偏好]": ["[个人偏好]", "[Personal Preference]"],
+    "[必须]": ["[必须]", "[Must]"],
+    "[推荐]": ["[推荐]", "[Recommended]"],
+    "[可选]": ["[可选]", "[Optional]"],
+  };
+  const accepted = aliases[required] || [required];
+  return tags.some((tag) => accepted.some((candidate) => tag.toLowerCase() === candidate.toLowerCase()));
+}
+
+function isNonRuleObservation(text: string): boolean {
+  return (
+    /^⚠️/.test(text) ||
+    /\[待验证\]|To Verify/i.test(text) ||
+    /^(?:证据|Evidence)[：:]/i.test(text) ||
+    /^\*?\s*(?:证据|Evidence)[：:]/i.test(text) ||
+    /未发现|未展示|未出现|未启用|未见|无显式|当前无|不存在|通过文件片段推断|早期分析|L8\s*中提及/.test(text)
+  );
+}
+
+function uniqueTitles(titles: string[]): string[] {
+  const out: string[] = [];
+  for (const title of titles) {
+    if (!title || out.some((existing) => normalizeRule(existing) === normalizeRule(title))) {
+      continue;
+    }
+    out.push(title);
+  }
+  return out;
+}
+
+function dedupeRules(rules: ExtractedRule[]): ExtractedRule[] {
+  const out = new Map<string, ExtractedRule>();
+  for (const rule of rules) {
+    const key = normalizeRule(rule.text);
+    if (!out.has(key)) out.set(key, rule);
+  }
+  return [...out.values()];
 }
 
 function mergeContinuationIfNeeded(
@@ -743,7 +1028,7 @@ function mergeContinuationIfNeeded(
 }
 
 function selectTopRules(rules: string[], limit: number): string[] {
-  const unique = [...new Map(rules.map((r) => [normalizeRule(r), r])).values()];
+  const unique = dedupeNearRules(rules);
   const ranked = unique
     .map((rule, index) => ({
       rule,
@@ -813,21 +1098,142 @@ function normalizeRule(rule: string): string {
 
 function parseTemplateBlocks(content: string): TemplateInfo[] {
   const templates: TemplateInfo[] = [];
-  const rx = /###\s+模板[：:]\s*(.+)\n([\s\S]*?)(?=\n### |\n---|\n## |$)/g;
-  let m: RegExpExecArray | null;
-  while ((m = rx.exec(content)) !== null) {
-    const name = m[1].trim();
-    const body = m[2] || "";
-    const missing = /无现有模式/.test(name) || /无现有模式/.test(body);
-    const unsafe = !missing && isUnsafeTemplate(body);
+  for (const section of extractLevel3Sections(content)) {
+    const parsed = parseTemplateSectionTitle(section.title);
+    if (!parsed) continue;
+    const picked = selectRepresentativeTemplate(parsed.headingName, section.body);
+    const name = picked.name;
+    const missing = /无现有模式/.test(name) || isMissingOnlyTemplateBody(picked.body);
+    const unsafe = !missing && isUnsafeTemplate(picked.body);
     templates.push({
       name,
-      layer: findEnclosingLayer(m.index, content),
+      layer: findEnclosingLayer(section.index, content),
       unsafe,
       missing,
     });
   }
   return templates;
+}
+
+function dedupeNearRules(rules: string[]): string[] {
+  const best = new Map<string, { rule: string; index: number; score: number }>();
+  rules.forEach((rule, index) => {
+    const key = semanticRuleKey(rule);
+    const score = scoreRule(rule);
+    const current = best.get(key);
+    if (!current || score > current.score || (score === current.score && rule.length > current.rule.length)) {
+      best.set(key, { rule, index, score });
+    }
+  });
+  return [...best.values()].sort((a, b) => a.index - b.index).map((item) => item.rule);
+}
+
+function semanticRuleKey(rule: string): string {
+  const normalized = rule.toLowerCase().replace(/[`"'“”‘’]/g, "").replace(/\s+/g, " ");
+  if (/api/.test(normalized) && /命名|name/.test(normalized) && /api\s*结尾|以 api|api 后缀|api$/.test(normalized)) {
+    return "api-function-naming";
+  }
+  if (/token|令牌|admin-token|admin-refresh-token/.test(normalized) && /auth\.js|cookies|localstorage|存取|读取|写入|删除|管理/.test(normalized)) {
+    return "token-access-management";
+  }
+  if (/vite_|import\.meta\.env|loadenv|环境变量|\.env/.test(normalized)) {
+    return "vite-env-config";
+  }
+  if (/pinia|store|状态/.test(normalized) && /persist|持久化/.test(normalized)) {
+    return "pinia-persistence";
+  }
+  return normalizeRule(rule);
+}
+
+function parseTemplateSectionTitle(title: string): { headingName: string } | null {
+  const match = title.match(/^(?:模板|Template|Templates?)(?:[：:]\s*(.*?))?$/i);
+  if (!match) return null;
+  return { headingName: (match[1] || "").trim() };
+}
+
+function selectRepresentativeTemplate(
+  headingName: string,
+  body: string,
+): { name: string; body: string } {
+  if (headingName.trim()) {
+    return { name: normalizeTemplateName(headingName), body };
+  }
+  const candidates = extractTemplateCandidates(body);
+  const active = candidates.find((candidate) => !isMissingOnlyTemplateBody(candidate.body));
+  return active || candidates[0] || {
+    name: normalizeTemplateName(extractTemplateTitle(body) || "Template"),
+    body,
+  };
+}
+
+function extractTemplateCandidates(body: string): Array<{ name: string; body: string }> {
+  const lines = body.split("\n");
+  const candidates: Array<{ name: string; body: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const heading = parseTemplateHeading(lines[i].trim());
+    if (!heading) continue;
+    candidates.push({
+      name: normalizeTemplateName(heading),
+      body: collectTemplateSubBody(lines, i + 1),
+    });
+  }
+  return candidates;
+}
+
+function extractTemplateTitle(body: string): string | null {
+  const lines = body.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith("```")) continue;
+    const heading = parseTemplateHeading(line);
+    if (heading) {
+      const subBody = collectTemplateSubBody(lines, i + 1);
+      if (isMissingOnlyTemplateBody(subBody)) continue;
+      return heading.trim();
+    }
+    if (!/^[-*]\s+/.test(line) && !/^`[^`]+`[：:]/.test(line)) return line;
+  }
+  return null;
+}
+
+function parseTemplateHeading(line: string): string | null {
+  return (
+    line.match(/^####\s+(.+)$/)?.[1] ||
+    line.match(/^\*\*(.+?)\*\*\s*$/)?.[1] ||
+    null
+  );
+}
+
+function collectTemplateSubBody(lines: string[], start: number): string {
+  const out: string[] = [];
+  for (let i = start; i < lines.length; i++) {
+    if (parseTemplateHeading(lines[i].trim())) break;
+    out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
+function isMissingOnlyTemplateBody(body: string): boolean {
+  if (!/无现有模式|No existing pattern/i.test(body)) return false;
+  if (/```/.test(body)) return false;
+  const meaningful = body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^#{1,6}\s+/.test(line))
+    .map((line) => line.replace(/^[\u26a0\ufe0f\s]+/, "").trim())
+    .filter((line) => !/^(无现有模式|No existing pattern)/i.test(line));
+  return meaningful.length === 0;
+}
+
+function normalizeTemplateName(name: string): string {
+  return (
+    name
+      .replace(/^#+\s+/, "")
+      .replace(/^\*\*(.+)\*\*$/, "$1")
+      .replace(/^\[(.+)\]$/, "$1")
+      .trim() || "Template"
+  );
 }
 
 function selectTopTemplates(templates: TemplateInfo[]): TemplateInfo[] {
@@ -879,7 +1285,8 @@ function isUnsafeTemplate(body: string): boolean {
 
 function extractAntiPatterns(content: string): string[] {
   const out: string[] = [];
-  const rx = /###\s+反模式\s*\n([\s\S]*?)(?=\n### |\n---|\n## [^#]|$)/g;
+  const seen = new Set<string>();
+  const rx = /^###\s+(?:反模式|Anti-?patterns?)\s*\n([\s\S]*?)(?=^###(?!#)\s+|^---\s*$|^##\s+|$)/gim;
   let m: RegExpExecArray | null;
   while ((m = rx.exec(content)) !== null) {
     const lines = m[1]
@@ -888,29 +1295,89 @@ function extractAntiPatterns(content: string): string[] {
       .map((l) => cleanRuleLine(l))
       .filter((l) => isActionableAntiPattern(l));
     for (const line of lines) {
-      if (!out.includes(line)) out.push(line);
+      const formatted = formatAntiPattern(line);
+      const key = normalizeAntiPatternKey(formatted);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(formatted);
+      }
     }
   }
   return out;
 }
 
+function dedupeAntiPatterns(lines: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const formatted = formatAntiPattern(line);
+    const key = normalizeAntiPatternKey(formatted);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(formatted);
+  }
+  return out;
+}
+
+function formatAntiPattern(line: string): string {
+  const body = line
+    .replace(/^[❌✗×xX]\s*/, "")
+    .replace(/^[🚫⚠️]\s*/, "")
+    .trim();
+  return body ? `❌ ${body}` : line;
+}
+
+function normalizeAntiPatternKey(line: string): string {
+  const normalized = line
+    .toLowerCase()
+    .replace(/^[❌✗×xX🚫⚠️\s]+/, "")
+    .replace(/[`"'“”‘’]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/硬编码.*(?:后端|接口|api).*地址|(?:后端|接口|api).*地址.*硬编码|http:\/\/192\.168\./i.test(normalized)) {
+    return "hardcoded-backend-url";
+  }
+  if (/直接修改.*state|state.*直接修改/.test(normalized)) {
+    return "direct-state-mutation";
+  }
+  return normalized.slice(0, 120);
+}
+
 function extractDecisionTable(content: string): string {
   const match = content.match(
-    /##\s+决策启发式\s*\n([\s\S]*?)(?=\n## |\n---\n|$)/,
+    /##\s+(?:决策启发式|Decision Heuristics)\s*\n([\s\S]*?)(?=\n## |\n---\n|$)/,
   );
-  return match ? match[0].trim() : "";
+  if (!match) return "";
+  const tableLines = match[0]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|"));
+  const dataRows = tableLines.filter(
+    (line) => !/^\|\s*-+/.test(line) && !/场景|Scenario/i.test(line),
+  );
+  return dataRows.length > 0 ? match[0].trim() : "";
 }
 
 function countGaps(content: string): GapStats {
   const stats: GapStats = { observed: 0, suggested: 0 };
-  const rx = /###\s+⚠️\s*Gaps\s*\n([\s\S]*?)(?=\n## |\n---\n|$)/g;
-  let m: RegExpExecArray | null;
-  while ((m = rx.exec(content)) !== null) {
-    for (const raw of m[1].split("\n")) {
+  for (const section of extractLevel3Sections(content)) {
+    if (!isGapSectionTitle(section.title)) continue;
+    let bucket: keyof GapStats | null = null;
+    for (const raw of section.body.split("\n")) {
       const line = raw.trim();
+      const subheading = line.match(/^####\s+(.+)$/)?.[1]?.trim();
+      if (subheading) {
+        bucket = /已观察|Observed|Risk/i.test(subheading)
+          ? "observed"
+          : /建议|改进|Suggested|Improvement/i.test(subheading)
+            ? "suggested"
+            : null;
+        continue;
+      }
       if (!line.startsWith("-")) continue;
       if (/^-+\s*(无|None|N\/A)[。.]?$/.test(line)) continue;
-      if (isSuggestionText(line)) stats.suggested += 1;
+      if (bucket) stats[bucket] += 1;
+      else if (isSuggestionText(line)) stats.suggested += 1;
       else stats.observed += 1;
     }
   }
@@ -918,11 +1385,8 @@ function countGaps(content: string): GapStats {
 }
 
 function countSpeculativeResiduals(content: string): number {
-  const withoutGaps = content.replace(
-    /###\s+⚠️\s*Gaps\s*\n[\s\S]*?(?=\n## |\n---\n|$)/g,
-    "",
-  );
-  return withoutGaps
+  const withoutGaps = removeSections(content, (title) => isGapSectionTitle(title));
+  return stripFencedCodeBlocks(withoutGaps)
     .split("\n")
     .filter((line) => !line.trim().startsWith("#"))
     .filter((line) => !/无现有模式/.test(line))
@@ -930,6 +1394,94 @@ function countSpeculativeResiduals(content: string): number {
     .filter((line) => !/^\s*[-*]\s*⚠️/.test(line))
     .filter((line) => /\[待验证\]|建议|推荐使用|推测|可能|未发现|未展示/.test(line))
     .length;
+}
+
+function stripFencedCodeBlocks(content: string): string {
+  return content.replace(/^```[\s\S]*?^```\s*$/gm, "");
+}
+
+function extractLevel3Sections(
+  content: string,
+): Array<{ title: string; body: string; index: number }> {
+  const sections: Array<{ title: string; body: string; index: number }> = [];
+  const rx = /^###\s+(.+?)\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = rx.exec(content)) !== null) {
+    const start = match.index + match[0].length;
+    const rest = content.slice(start);
+    const boundary = rest.match(/^(?:###(?!#)\s+|##\s+|^---\s*$)/m);
+    const end = boundary?.index === undefined ? content.length : start + boundary.index;
+    sections.push({ title: match[1].trim(), body: content.slice(start, end), index: match.index });
+  }
+  return sections;
+}
+
+function removeSections(
+  content: string,
+  shouldRemove: (title: string) => boolean,
+): string {
+  let out = "";
+  let cursor = 0;
+  const rx = /^###\s+(.+?)\s*$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = rx.exec(content)) !== null) {
+    const start = match.index;
+    const bodyStart = match.index + match[0].length;
+    const rest = content.slice(bodyStart);
+    const boundary = rest.match(/^(?:###(?!#)\s+|##\s+|^---\s*$)/m);
+    const end = boundary?.index === undefined ? content.length : bodyStart + boundary.index;
+    if (shouldRemove(match[1].trim())) {
+      out += content.slice(cursor, start);
+      cursor = end;
+    }
+  }
+  return out + content.slice(cursor);
+}
+
+function isRuleSectionTitle(title: string): boolean {
+  return normalizeSectionTitle(title).some((value) =>
+    ["rules", "规则", "约定", "conventions"].includes(value),
+  );
+}
+
+function isGapSectionTitle(title: string): boolean {
+  return normalizeSectionTitle(title).some((value) =>
+    ["gaps", "缺口", "待验证", "to verify"].includes(value),
+  );
+}
+
+function isReservedSectionTitle(title: string): boolean {
+  const reserved = new Set([
+    "scope",
+    "范围",
+    "边界",
+    "rules",
+    "规则",
+    "约定",
+    "conventions",
+    "template",
+    "templates",
+    "模板",
+    "anti-pattern",
+    "anti-patterns",
+    "反模式",
+    "evidence",
+    "证据",
+    "gaps",
+    "缺口",
+    "待验证",
+    "to verify",
+  ]);
+  return normalizeSectionTitle(title).some((value) => reserved.has(value));
+}
+
+function normalizeSectionTitle(title: string): string[] {
+  const cleaned = title
+    .replace(/^⚠️\s*/, "")
+    .replace(/[：:].*$/, "")
+    .trim()
+    .toLowerCase();
+  return [cleaned, cleaned.replace(/[-\s]+/g, " ")];
 }
 
 function isSuggestionText(text: string): boolean {
@@ -953,7 +1505,7 @@ interface CrossPattern {
 }
 
 function buildScenarioGuide(
-  typeEntries: Pick<TypeData, "projType" | "typeRules" | "hardRules">[],
+  typeEntries: Pick<TypeData, "projType" | "languages" | "typeRules" | "hardRules">[],
 ): Array<{ scene: string; action: string; layer: string }> {
   const rows: Array<{ scene: string; action: string; layer: string }> = [];
   const add = (scene: string, action: string, layer: string) => {
@@ -965,17 +1517,22 @@ function buildScenarioGuide(
   for (const td of typeEntries) {
     const rules = [...td.typeRules, ...td.hardRules].join("\n");
     if (td.projType === "vue3") {
+      const hasTypeScriptContracts = [...td.languages].some((lang) =>
+        /typescript/i.test(lang),
+      );
       if (rules.includes("src/api") || rules.includes("API")) {
         add(
           "新增前端接口",
-          "在 `src/api/{业务域}/{资源}/index.ts` 中导出命名函数和 VO 类型",
+          hasTypeScriptContracts
+            ? "在 `src/api/` 对应业务域文件中导出命名接口函数和对应类型契约"
+            : "在 `src/api/` 对应业务域 `.js` 文件中导出命名接口函数，并通过统一 `request` 封装调用",
           "L2",
         );
       }
-      if (rules.includes("Pinia") || rules.includes("store")) {
+      if (/Pinia|store|状态|State Management/i.test(rules)) {
         add(
           "新增跨页面状态",
-          "在 `src/store/modules/` 新增 Pinia 模块，并通过 action 管理持久化",
+          "在 `src/stores/modules/` 新增 Pinia 模块，并通过 action 管理读取、更新与持久化",
           "L5",
         );
       }

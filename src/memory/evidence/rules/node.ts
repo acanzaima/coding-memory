@@ -7,6 +7,7 @@ export const nodeEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: "Node 服务通过 Express/Koa/Fastify 路由或 controller 入口暴露 HTTP API。",
+    appliesTo: ["node", "express", "koa", "fastify", "nestjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(ts|js|mts|mjs|cts|cjs)$/.test(f.path) &&
@@ -19,6 +20,7 @@ export const nodeEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: "NestJS 服务通过 module/controller/service 文件和装饰器表达模块边界。",
+    appliesTo: ["nestjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(ts|js)$/.test(f.path) &&
@@ -32,6 +34,7 @@ export const nodeEvidenceRules: EvidenceRule[] = [
     layer: "L3",
     category: "Typing",
     summary: "Node/TypeScript 接口契约通过 DTO、schema 或运行时校验库表达。",
+    appliesTo: ["node", "express", "koa", "fastify", "nestjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(ts|tsx|js|jsx)$/.test(f.path) &&
@@ -45,6 +48,7 @@ export const nodeEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: "Node 数据访问通过 ORM、repository、model 或 prisma/drizzle/schema 层集中处理。",
+    appliesTo: ["node", "express", "koa", "fastify", "nestjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(ts|js|prisma)$/.test(f.path) &&
@@ -60,6 +64,7 @@ export const nodeEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Security",
     summary: "Node 服务通过 middleware/guard/filter 或安全库集中处理认证、校验和横切逻辑。",
+    appliesTo: ["node", "express", "koa", "fastify", "nestjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(ts|js|mts|mjs|cts|cjs)$/.test(f.path) &&

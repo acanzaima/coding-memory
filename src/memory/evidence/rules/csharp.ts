@@ -7,6 +7,7 @@ export const csharpEvidenceRules: EvidenceRule[] = [
     layer: "L2",
     category: "API",
     summary: ".NET 服务通过 Controller、Minimal API 或路由特性暴露 HTTP API。",
+    appliesTo: ["csharp", "dotnet", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".cs" &&
@@ -21,6 +22,7 @@ export const csharpEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Architecture",
     summary: ".NET 项目通过 Program/Startup 的依赖注入注册组织服务边界。",
+    appliesTo: ["csharp", "dotnet", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".cs" &&
@@ -34,6 +36,7 @@ export const csharpEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "Persistence",
     summary: ".NET 数据访问通过 DbContext、DbSet 或 repository 层集中处理。",
+    appliesTo: ["csharp", "dotnet", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".cs" &&
@@ -45,6 +48,7 @@ export const csharpEvidenceRules: EvidenceRule[] = [
     layer: "L7",
     category: "Security",
     summary: ".NET 横切关注点通过授权特性、认证中间件或数据校验特性集中处理。",
+    appliesTo: ["csharp", "dotnet", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       f.extension === ".cs" &&

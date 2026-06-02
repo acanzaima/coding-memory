@@ -246,6 +246,10 @@ assert.match(prompt, /factual floor/);
 const vueGroups = scanProject("test/fixtures/vue3", scanConfig);
 const vueReport = collectEvidence(combineGroups(vueGroups), "vue3");
 const vueIds = vueReport.items.map((item) => item.id);
+assert.doesNotMatch(
+  vueIds.join("\n"),
+  /react-router|react-state-management|vue2-options-api|vue2-vuex-state|node-middleware-security/,
+);
 assert.deepEqual(
   pick(vueIds, [
     "frontend-api-facade",
@@ -341,6 +345,7 @@ try {
   assert.match(quality, /\| vue3 \| 1 \|/);
   assert.match(quality, /PASS：所有项目类型都存在 evidence 报告/);
   assert.match(quality, /已提取确定性证据/);
+  assert.doesNotMatch(quality, /WARN：.*缺失模板/);
 
   const qualityEn = generateQualityReport(
     {

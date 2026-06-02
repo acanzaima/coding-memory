@@ -7,6 +7,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Component",
     summary: "组件文件按功能/路由组织，存在 index 桶文件模式。",
+    appliesTo: ["react", "nextjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       (/\.tsx$/.test(f.path) || /\.jsx$/.test(f.path)) &&
@@ -18,6 +19,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L4",
     category: "Hooks",
     summary: "项目使用自定义 hooks (useXxx) 封装逻辑。",
+    appliesTo: ["react", "nextjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /(^|\/)use[A-Z]\w+\.(ts|tsx|js|jsx)$/.test(f.path),
@@ -29,6 +31,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L5",
     category: "State",
     summary: "使用 Redux/Zustand/Jotai 等状态管理。",
+    appliesTo: ["react", "nextjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       (/(^|\/)store\//.test(f.path) ||
@@ -43,6 +46,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Routing",
     summary: "使用 React Router 进行路由管理。",
+    appliesTo: ["react", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       (/(^|\/)router\//.test(f.path) ||
@@ -54,6 +58,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L1",
     category: "Routing",
     summary: "Next.js 项目使用 app router 的目录约定组织页面、布局和服务端组件。",
+    appliesTo: ["nextjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /(^|\/)app\/.+\/(page|layout|loading|error|route)\.(ts|tsx|js|jsx)$/.test(
@@ -67,6 +72,7 @@ export const reactEvidenceRules: EvidenceRule[] = [
     layer: "L4",
     category: "Rendering",
     summary: "React/Next 组件显式区分 client component、server action 或服务端数据读取边界。",
+    appliesTo: ["react", "nextjs", "mixed"],
     test: (f) =>
       isProductionFile(f) &&
       /\.(tsx|jsx|ts|js)$/.test(f.path) &&
