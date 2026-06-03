@@ -225,6 +225,10 @@ coding-memory learn starry-coding -p ./project-b    # 第 2 次：合并，learn
         ├── OVERVIEW.md            # 项目类型总述
         ├── EVIDENCE.md            # 确定性证据表
         ├── EVIDENCE.json          # 结构化证据，供 QUALITY.md 使用
+        ├── MANIFEST.json          # 层级索引、主题和统计
+        ├── TRACE.json             # 规则/模板到证据的追踪
+        ├── VERIFY.json            # 本地确定性审计结果
+        ├── RUNS.md                # 每轮 learn 用时与 LLM 请求统计
         ├── L1-项目骨架.md         # 目录结构、文件命名、模块组织
         ├── L2-模块与接口.md       # 拆分粒度、依赖方向、API 设计
         ├── L3-命名与类型.md       # 命名约定、类型使用、常量管理
@@ -266,6 +270,8 @@ These patterns consistently appear across projects:
 
 每个 L1-L8 层文件包含：**约定 → 模板（从真实代码模式提取；无证据则标记“无现有模式”） → 反模式**。
 约定标注了 `[个人偏好]` / `[项目特定]` 以及置信度 `[必须]` / `[推荐]` / `[可选]`。
+
+`RUNS.md` 会记录每轮 learn 的总用时、LLM 请求耗时、请求次数、对话轮次、重试次数和 token 用量。`QUALITY.md`、`EVIDENCE.md` 等给人看的 Markdown 报告使用本地时间展示；JSON sidecar 和 `.runs` 诊断文件保留 UTC ISO 时间，方便机器排序和审计。
 
 ---
 
@@ -423,4 +429,4 @@ coding-memory verify my-skill --strict
 coding-memory diff my-skill --type vue3
 ```
 
-`--resume` 会从 `~/.coding-memory/.runs/` 恢复最近一次兼容的 learn run。每次 run 会保存阶段 checkpoint、L1-L8 层 checkpoint 和 `calls.jsonl` LLM 调用诊断。每个 L1-L8 层现在稳定包含 `Scope` / `Rules` / `Templates` / `Anti-patterns` / `Evidence` / `Gaps` 六段；`MANIFEST.json` 提供索引，`TRACE.json` 追踪规则和模板证据，`VERIFY.json` 保存本地审计结果。
+`--resume` 会从 `~/.coding-memory/.runs/` 恢复最近一次兼容的 learn run。每次 run 会保存阶段 checkpoint、L1-L8 层 checkpoint 和 `calls.jsonl` LLM 调用诊断；生成目录中的 `RUNS.md` 会汇总每轮 learn 的用时、LLM 请求次数、对话轮次、重试和 token。每个 L1-L8 层现在稳定包含 `Scope` / `Rules` / `Templates` / `Anti-patterns` / `Evidence` / `Gaps` 六段；`MANIFEST.json` 提供索引，`TRACE.json` 追踪规则和模板证据，`VERIFY.json` 保存本地审计结果。

@@ -35,7 +35,7 @@ coding-memory uses an evidence-driven generation pipeline:
 2. **Extract Evidence** with deterministic rules across common stacks: Vue2/Vue3, React/Next, Node/NestJS, Java/Spring, Python, Go, Rust, .NET, PHP, Ruby, CI, containers, and environment config.
 3. **Generate With LLM** using source snippets and deterministic Evidence as the factual floor. The SYNTHESIZE phase generates L1-L8 one layer at a time with layer-relevant code samples to reduce long-output truncation risk.
 4. **Govern Artifacts** by splitting L1-L8, filtering speculative content, downgrading unsafe templates, and grouping unverified suggestions into Gaps.
-5. **Report Quality** through `SKILL.md`, `QUALITY.md`, `EVIDENCE.md`, and `EVIDENCE.json`.
+5. **Report Quality** through `SKILL.md`, `QUALITY.md`, `EVIDENCE.md/json`, structured sidecars, and per-run metrics.
 
 ## Quick Start
 
@@ -119,7 +119,7 @@ coding-memory learn -p ./my-app --resume
 
 Repeated `learn` runs update the same `skillName/projectType` entry. Existing L1-L8 content is injected by matching layer: generating L2 sees the previous L2, generating L7 sees the previous L7, and so on. The model is instructed to preserve still-supported content, add newly observed patterns, and remove or downgrade stale/speculative material.
 
-`--resume` continues the latest compatible learn run from saved checkpoints. Each run records `manifest.json`, layer checkpoints, and `calls.jsonl` diagnostics under `~/.coding-memory/.runs/`.
+`--resume` continues the latest compatible learn run from saved checkpoints. Each run records `manifest.json`, layer checkpoints, and `calls.jsonl` diagnostics under `~/.coding-memory/.runs/`. Generated `RUNS.md` summarizes per-learn duration, LLM request time, request count, conversation turns, retries, and token usage.
 
 ### `coding-memory inspect`
 
@@ -167,6 +167,10 @@ coding-memory status
         ├── OVERVIEW.md
         ├── EVIDENCE.md
         ├── EVIDENCE.json
+        ├── MANIFEST.json
+        ├── TRACE.json
+        ├── VERIFY.json
+        ├── RUNS.md
         ├── L1-项目骨架.md
         ├── L2-模块与接口.md
         ├── L3-命名与类型.md
@@ -180,6 +184,8 @@ coding-memory status
 `SKILL.md` is the compact AI entry point. The reference files keep detailed layer evidence and generated conventions.
 
 Each L1-L8 layer follows a stable schema: `Scope`, `Rules`, `Templates`, `Anti-patterns`, `Evidence`, and `Gaps`. New structured sidecars are written beside the markdown: `MANIFEST.json` indexes layer topics and counts, `TRACE.json` maps extracted rules/templates to evidence where possible, and `VERIFY.json` stores the local audit result.
+
+Human-facing Markdown reports such as `QUALITY.md` and `EVIDENCE.md` display generated times in local time. JSON sidecars and `.runs` diagnostics keep UTC ISO timestamps for stable sorting and machine audit.
 
 ## Configuration
 

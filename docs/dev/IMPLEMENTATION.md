@@ -10,7 +10,7 @@
 2. `buildLearnContext()` 将多个语言组合并为项目级输入，检测项目类型，读取已有 L1-L8，并收集确定性 Evidence。
 3. `runGeneration()` 调用 LLM 版 `generateSkill()`。Evidence 会被渲染为 prompt 文本，并注入全部生成阶段。
 4. `validateAndGovernLayers()` 拆分 L1-L8，结构异常时重试一次，并运行产物治理。
-5. `writeLearningArtifacts()` 写入 L1-L8、`OVERVIEW.md`、`EVIDENCE.md`、`EVIDENCE.json`、`MANIFEST.json`、`TRACE.json`、`VERIFY.json`，并更新 `lock.json`。
+5. `writeLearningArtifacts()` 写入 L1-L8、`OVERVIEW.md`、`EVIDENCE.md`、`EVIDENCE.json`、`MANIFEST.json`、`TRACE.json`、`VERIFY.json`、`RUNS.md`，并更新 `lock.json`。
 6. `updateMasterArtifacts()` 重新生成顶层 `SKILL.md` 和 `QUALITY.md`。
 
 ## Evidence 层
@@ -76,13 +76,21 @@ Evidence 会注入每个阶段。这并不等于对 LLM 输出做形式化证明
 
 `coding-memory learn --resume` 会查找最近一次 scan hash 和 evidence hash 兼容的 run，从已完成 checkpoint 继续，避免网络中断、empty response 或 terminated 后整条流水线重跑。
 
+生成目录中的 `RUNS.md` 会汇总每轮 learn 的总用时、LLM 请求耗时、请求次数、对话轮次、重试次数和 token 用量，用于判断质量优化是否带来了额外耗时。
+
 ## 结构化产物
 
-`reference/<type>/` 下新增三个 sidecar：
+`reference/<type>/` 下新增结构化 sidecar 与运行记录：
 
 - `MANIFEST.json`：项目类型索引，记录每层文件、主题、规则数、模板数、Evidence 覆盖。
 - `TRACE.json`：从 L1-L8 中抽取规则和模板，并尽量关联 Evidence id 与文件路径；用于 diff、verify 和 update 生命周期提示。
 - `VERIFY.json`：本地确定性审计结果，记录缺层、缺 schema 段、stale/pending 规则和模板统计。
+- `RUNS.md`：面向人的学习运行记录，记录每轮 learn 的耗时与 LLM 调用统计。
+
+时间格式策略：
+
+- `QUALITY.md`、`EVIDENCE.md` 和 `RUNS.md` 这类面向人的 Markdown 报告使用本地时间展示。
+- `EVIDENCE.json`、`MANIFEST.json`、`TRACE.json`、`VERIFY.json`、`.runs/manifest.json` 和 `calls.jsonl` 保留 UTC ISO 时间，方便机器排序、diff 和审计。
 
 对应 CLI：
 
