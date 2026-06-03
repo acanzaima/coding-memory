@@ -18,7 +18,7 @@ import {
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { readConfig, getSkillsDir } from "../config/manager.js";
-import { getCurrentModel } from "../config/models.js";
+import { consumeModelsMigrationNotice, getCurrentModel } from "../config/models.js";
 import { scanProject } from "../scanner/file-scanner.js";
 import { getLanguageDisplayName } from "../scanner/language.js";
 import { select } from "../cli/select.js";
@@ -186,6 +186,7 @@ export async function learnCommand(
   const config = readConfig();
 
   const llmConfig = getCurrentModel();
+  noticeModelConfigMigration();
   if (!options?.dryRun && !llmConfig) {
     console.log(
       `\n  ${c.red}${icon.err}${c.reset} No LLM model configured. Run ${c.cyan}coding-memory config${c.reset}\n`,
@@ -307,6 +308,18 @@ export async function learnCommand(
   } else {
     console.log(`\n  ${c.dim}No files written (--dry-run)${c.reset}\n`);
   }
+}
+
+function noticeModelConfigMigration(): void {
+  const migration = consumeModelsMigrationNotice();
+  if (!migration.migrated) return;
+  const names = migration.modelNames.join(", ");
+  console.log(
+    `\n  ${c.yellow}${icon.info}${c.reset} models.json upgraded to request-based advanced parameters.`,
+  );
+  console.log(
+    `  ${c.dim}Migrated: ${names || "(unknown)"}. Legacy temperature/maxTokens/options/headers were copied into request.${c.reset}\n`,
+  );
 }
 
 // ── Helpers ────────────────────────────────────────────────

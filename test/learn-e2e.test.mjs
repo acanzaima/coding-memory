@@ -31,8 +31,7 @@ try {
         model: "mock-model",
         apiKey: "test-key",
         baseURL: url,
-        temperature: 0,
-        maxTokens: 4096,
+        request: { temperature: 0, max_tokens: 4096 },
       },
     },
   });
@@ -237,8 +236,7 @@ try {
           model: "mock-model",
           apiKey: "test-key",
           baseURL: url,
-          temperature: 0,
-          maxTokens: 4096,
+          request: { temperature: 0, max_tokens: 4096 },
         },
       },
     });
@@ -292,8 +290,7 @@ try {
           model: "mock-fail",
           apiKey: "test-key",
           baseURL: url,
-          temperature: 0,
-          maxTokens: 4096,
+          request: { temperature: 0, max_tokens: 4096 },
         },
       },
     });
@@ -337,8 +334,7 @@ try {
           model: "mock-p1-length",
           apiKey: "test-key",
           baseURL: url,
-          temperature: 0,
-          maxTokens: 4096,
+          request: { temperature: 0 },
         },
       },
     });
@@ -391,8 +387,7 @@ try {
           model: "mock-l8-length",
           apiKey: "test-key",
           baseURL: url,
-          temperature: 0,
-          maxTokens: 4096,
+          request: { temperature: 0, max_tokens: 4096 },
         },
       },
     });

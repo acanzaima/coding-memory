@@ -12,9 +12,7 @@
  *       "provider": "openai",
  *       "model": "gpt-4o",
  *       "apiKey": "sk-...",
- *       "baseURL": "https://api.openai.com/v1",
- *       "temperature": 0.3,
- *       "maxTokens": 4096
+ *       "baseURL": "https://api.openai.com/v1"
  *     },
  *     "deepseek-v3": {
  *       "provider": "openai-compatible",
@@ -28,7 +26,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import type { LLMConfig } from "../types.js";
+import type { LLMConfig, LLMRequestConfig } from "../types.js";
 import { CONFIG_DIR } from "./manager.js";
 
 export const MODELS_FILE = join(CONFIG_DIR, "models.json");
@@ -39,11 +37,18 @@ export interface ModelsConfig {
   models: Record<string, LLMConfig>;
 }
 
+export interface ModelsMigrationResult {
+  migrated: boolean;
+  modelNames: string[];
+}
+
 /** Default empty models config */
 export const defaultModelsConfig: ModelsConfig = {
   current: "",
   models: {},
 };
+
+let lastMigration: ModelsMigrationResult = { migrated: false, modelNames: [] };
 
 /**
  * Ensure the config directory exists.
@@ -62,12 +67,18 @@ export function readModels(): ModelsConfig {
     if (existsSync(MODELS_FILE)) {
       const raw = JSON.parse(readFileSync(MODELS_FILE, "utf-8"));
       if (raw && raw.models && typeof raw.models === "object") {
+        const migrated = migrateModelsConfig(raw as ModelsConfig);
+        if (migrated.migrated) {
+          writeModels(raw as ModelsConfig);
+          lastMigration = migrated;
+        }
         return raw as ModelsConfig;
       }
     }
   } catch {
     // Corrupted, start fresh
   }
+  lastMigration = { migrated: false, modelNames: [] };
   return { ...defaultModelsConfig };
 }
 
@@ -161,4 +172,88 @@ export function listModels(): Array<{
     provider: cfg.provider,
     model: cfg.model,
   }));
+}
+
+export function consumeModelsMigrationNotice(): ModelsMigrationResult {
+  const result = lastMigration;
+  lastMigration = { migrated: false, modelNames: [] };
+  return result;
+}
+
+type LegacyLLMConfig = LLMConfig & {
+  temperature?: number;
+  maxTokens?: number;
+  options?: Record<string, unknown>;
+  headers?: Record<string, string>;
+};
+
+function migrateModelsConfig(config: ModelsConfig): ModelsMigrationResult {
+  const modelNames: string[] = [];
+  for (const [name, model] of Object.entries(config.models)) {
+    const legacy = model as LegacyLLMConfig;
+    const request = normalizeRequest(legacy.request);
+    let changed = false;
+
+    if (legacy.temperature !== undefined && request.temperature === undefined) {
+      request.temperature = legacy.temperature;
+      changed = true;
+    }
+    if (legacy.maxTokens !== undefined && request.max_tokens === undefined) {
+      request.max_tokens = legacy.maxTokens;
+      changed = true;
+    }
+    if (legacy.options && typeof legacy.options === "object") {
+      for (const [key, value] of Object.entries(legacy.options)) {
+        if (request[key] === undefined) request[key] = value;
+      }
+      changed = true;
+    }
+    if (legacy.headers && typeof legacy.headers === "object") {
+      const headers = normalizeHeaders(request.headers);
+      for (const [key, value] of Object.entries(legacy.headers)) {
+        if (headers[key] === undefined) headers[key] = value;
+      }
+      request.headers = headers;
+      changed = true;
+    }
+
+    if ("temperature" in legacy) {
+      delete legacy.temperature;
+      changed = true;
+    }
+    if ("maxTokens" in legacy) {
+      delete legacy.maxTokens;
+      changed = true;
+    }
+    if ("options" in legacy) {
+      delete legacy.options;
+      changed = true;
+    }
+    if ("headers" in legacy) {
+      delete legacy.headers;
+      changed = true;
+    }
+
+    if (changed) {
+      model.request = request;
+      modelNames.push(name);
+    }
+  }
+  return { migrated: modelNames.length > 0, modelNames };
+}
+
+function normalizeRequest(value: unknown): LLMRequestConfig {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...(value as LLMRequestConfig) };
+  }
+  return {};
+}
+
+function normalizeHeaders(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }

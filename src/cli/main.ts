@@ -113,6 +113,19 @@ function resolveProjectRoots(
   return discoverProjects(resolve(process.cwd()));
 }
 
+async function noticeModelConfigMigration(): Promise<void> {
+  const { consumeModelsMigrationNotice } = await import("../config/models.js");
+  const migration = consumeModelsMigrationNotice();
+  if (!migration.migrated) return;
+  const names = migration.modelNames.join(", ");
+  console.log(
+    `${c.yellow}${icon.info}${c.reset} models.json upgraded to request-based advanced parameters.`,
+  );
+  console.log(
+    `  ${c.dim}Migrated: ${names || "(unknown)"}. Legacy temperature/maxTokens/options/headers were copied into request.${c.reset}`,
+  );
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -224,6 +237,7 @@ async function main() {
           const { listModels, readModels } =
             await import("../config/models.js");
           const models = listModels();
+          await noticeModelConfigMigration();
           if (models.length > 0) {
             const cur = readModels().current;
             console.log(`\n  Available models:`);
@@ -247,6 +261,7 @@ async function main() {
           await import("../config/models.js");
         if (switchModel(positional[0])) {
           const cfg = getCurrentModel();
+          await noticeModelConfigMigration();
           console.log(
             `${c.green}${icon.ok}${c.reset} Using ${c.cyan}${positional[0]}${c.reset}`,
           );
@@ -269,6 +284,7 @@ async function main() {
       case "test": {
         const { getCurrentModel } = await import("../config/models.js");
         const cfg = getCurrentModel();
+        await noticeModelConfigMigration();
         if (!cfg) {
           console.log(
             `${c.red}${icon.err}${c.reset} No active model configured.`,

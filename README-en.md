@@ -210,7 +210,7 @@ coding-memory config --dir D:/AI/memories
 }
 ```
 
-`options` is the advanced parameter area for fields such as `thinking` or `reasoning_effort`; coding-memory passes it through during `learn` and does not rewrite it. A few services require extra request headers; add them as `headers` in the same model entry.
+The `config` command writes the smallest model entry that can be tested and used for `learn`, while keeping `request` as the advanced configuration entry point. `models.json` has the highest priority for request parameters: when `request` explicitly contains `temperature`, `max_tokens`, `thinking`, `reasoning_effort`, or other provider-specific fields, both `learn` and `test` use those values first. Phase-level settings are only request-time fallbacks when a field is missing. `request.headers` goes to HTTP headers; every other key under `request` is merged directly into the request body. When upgrading from an older version, legacy `temperature`, `maxTokens`, `options`, and `headers` fields are copied into `request`, written back to `models.json`, and announced in the command window.
 
 Example `models.json` entry:
 
@@ -223,12 +223,18 @@ Example `models.json` entry:
       "model": "deepseek-v4-pro",
       "apiKey": "sk-...",
       "baseURL": "https://api.deepseek.com",
-      "temperature": 0.3,
-      "maxTokens": 4096,
-      "options": {
+      "request": {
         "thinking": { "type": "enabled" },
-        "reasoning_effort": "high"
+        "reasoning_effort": "high",
+        "max_tokens": 8192
       }
+    },
+    "kimi": {
+      "provider": "openai-compatible",
+      "model": "kimi-k2.5",
+      "apiKey": "sk-...",
+      "baseURL": "https://api.moonshot.cn/v1",
+      "request": {}
     }
   }
 }

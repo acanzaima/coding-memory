@@ -5,6 +5,8 @@
 
 import type { LLMConfig } from "../types.js";
 
+const DEFAULT_MAX_TOKENS = 4096;
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -173,13 +175,13 @@ export async function chatCompletionDetailed(
   if (lastTruncated) {
     throw new Error(
       `LLM response was truncated (${describeTruncatedResponse(lastTruncated)}). ` +
-        "Try increasing model maxTokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
+        "Try increasing request.max_tokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
     );
   }
 
   throw new Error(
     `LLM returned empty response${lastEmpty ? ` (${describeEmptyResponse(lastEmpty)})` : ""}. ` +
-      "Try increasing model maxTokens or reducing thinking budget, then run `coding-memory test` to diagnose.",
+      "Try increasing request.max_tokens or reducing thinking budget, then run `coding-memory test` to diagnose.",
   );
 }
 
@@ -227,7 +229,7 @@ function reportDiagnostic(
   const maxTokens =
     typeof body.max_tokens === "number"
       ? body.max_tokens
-      : options.maxTokens ?? config.maxTokens ?? 4096;
+      : resolveMaxTokens(config, options.maxTokens);
   try {
     onEvent({
       phase: options.diagnostics?.phase || "unknown",
@@ -256,19 +258,23 @@ function buildChatBody(
   options: ChatCompletionOptions,
   retryAttempt: number,
 ): Record<string, unknown> {
-  const requestedMax = options.maxTokens ?? config.maxTokens ?? 4096;
+  const requestedMax = resolveMaxTokens(config, options.maxTokens);
+  const temperature = resolveTemperature(config, options.temperature);
+  const requestBody = requestBodyParams(config);
   const body: Record<string, unknown> = {
     model: config.model,
     messages: options.messages,
-    temperature: options.temperature ?? config.temperature ?? 0.3,
-    max_tokens: retryAttempt === 0 ? requestedMax : growMaxTokens(requestedMax, retryAttempt),
-    // Merge provider-specific options (thinking, reasoning_effort, etc.)
-    ...(config.options || {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    max_tokens:
+      retryAttempt === 0 || requestMaxTokens(config) !== undefined
+        ? requestedMax
+        : growMaxTokens(requestedMax, retryAttempt),
+    ...(options.responseFormat === "json_object"
+      ? { response_format: { type: "json_object" } }
+      : {}),
+    // Merge user-managed advanced request params last.
+    ...requestBody,
   };
-
-  if (options.responseFormat === "json_object") {
-    body.response_format = { type: "json_object" };
-  }
   return body;
 }
 
@@ -401,20 +407,19 @@ async function anthropicCompletionDetailed(
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role, content: m.content }));
 
+  const temperature = resolveTemperature(config, options.temperature);
+  const requestBody = requestBodyParams(config);
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: options.maxTokens ?? config.maxTokens ?? 4096,
+    max_tokens: resolveMaxTokens(config, options.maxTokens),
     messages: chatMessages,
-    // Merge provider-specific options
-    ...(config.options || {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    // Merge user-managed advanced request params last.
+    ...requestBody,
   };
 
   if (systemMsg) {
     body.system = systemMsg.content;
-  }
-
-  if (options.temperature !== undefined) {
-    body.temperature = options.temperature;
   }
 
   let response: Response;
@@ -427,7 +432,7 @@ async function anthropicCompletionDetailed(
         "Content-Type": "application/json",
         "anthropic-version": "2023-06-01",
         ...(config.apiKey ? { "x-api-key": config.apiKey } : {}),
-        ...(config.headers || {}),
+        ...requestHeaders(config),
       },
       body: JSON.stringify(body),
     });
@@ -501,7 +506,7 @@ async function anthropicCompletionDetailed(
     }
     throw new Error(
       `Anthropic response was truncated (finish_reason=${data.stop_reason}, response_chars=${textContent.text.length}). ` +
-        "Try increasing model maxTokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
+        "Try increasing request.max_tokens or reducing thinking budget, then rerun or resume `coding-memory learn`.",
     );
   }
 
@@ -553,17 +558,7 @@ function openAICompatibleHeaders(config: LLMConfig): Record<string, string> {
   return {
     "Content-Type": "application/json",
     ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-    ...(config.headers || {}),
-  };
-}
-
-function withoutThinkingOptions(config: LLMConfig): LLMConfig {
-  const options = { ...(config.options || {}) };
-  delete options.thinking;
-  delete options.reasoning_effort;
-  return {
-    ...config,
-    options: Object.keys(options).length > 0 ? options : undefined,
+    ...requestHeaders(config),
   };
 }
 
@@ -590,10 +585,9 @@ export async function testConnection(
 
   try {
     if (config.provider === "anthropic") {
-      const content = await chatCompletion(withoutThinkingOptions(config), {
+      const content = await chatCompletion(config, {
         messages: [{ role: "user", content: "Say just pong" }],
         maxTokens: 256,
-        temperature: 0,
       });
       if (content.toLowerCase().includes("pong")) {
         return {
@@ -612,15 +606,18 @@ export async function testConnection(
     const baseURL = config.baseURL || getProviderBaseURL(config.provider);
     const url = joinApiPath(baseURL, "/chat/completions");
 
+    const temperature = resolveTemperature(config);
+    const requestBody = requestBodyParams(config);
     const body: Record<string, unknown> = {
       model: config.model,
       messages: [{ role: "user", content: "Say just pong" }],
-      max_tokens: 256,
-      temperature: 0,
+      max_tokens: resolveMaxTokens(config, 256),
+      ...(temperature !== undefined ? { temperature } : {}),
+      ...requestBody,
     };
 
     // Keep the ping tiny for DeepSeek reasoning models without changing learn-time options.
-    if (isDeepSeekConfig(config)) {
+    if (isDeepSeekConfig(config) && !hasRequestParam(config, "thinking")) {
       body.thinking = { type: "disabled" };
     }
 
@@ -688,4 +685,56 @@ export async function testConnection(
 
 function isDeepSeekConfig(config: LLMConfig): boolean {
   return /deepseek/i.test(`${config.model} ${config.baseURL || ""}`);
+}
+
+function resolveTemperature(
+  config: LLMConfig,
+  requested?: number,
+  fallback?: number,
+): number | undefined {
+  const requestTemperature = numericRequestParam(config, "temperature");
+  if (requestTemperature !== undefined) return requestTemperature;
+  if (omitsTemperatureByDefault(config)) return undefined;
+  return requested ?? fallback;
+}
+
+function resolveMaxTokens(
+  config: LLMConfig,
+  requested?: number,
+  fallback: number = DEFAULT_MAX_TOKENS,
+): number {
+  return requestMaxTokens(config) ?? requested ?? fallback;
+}
+
+function hasRequestParam(config: LLMConfig, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(config.request || {}, key);
+}
+
+function omitsTemperatureByDefault(config: LLMConfig): boolean {
+  return /moonshot/i.test(config.baseURL || "");
+}
+
+function requestMaxTokens(config: LLMConfig): number | undefined {
+  return numericRequestParam(config, "max_tokens");
+}
+
+function numericRequestParam(config: LLMConfig, key: string): number | undefined {
+  const value = config.request?.[key];
+  return typeof value === "number" ? value : undefined;
+}
+
+function requestBodyParams(config: LLMConfig): Record<string, unknown> {
+  const request = config.request || {};
+  const { headers: _headers, ...body } = request;
+  return body;
+}
+
+function requestHeaders(config: LLMConfig): Record<string, string> {
+  const headers = config.request?.headers;
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return {};
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }

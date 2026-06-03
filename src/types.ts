@@ -3,17 +3,20 @@
  */
 
 /** LLM provider configuration */
+export interface LLMRequestConfig {
+  /** Provider-specific extra HTTP headers */
+  headers?: Record<string, string>;
+  /** Provider-specific request body params (temperature, max_tokens, thinking, etc.) */
+  [key: string]: unknown;
+}
+
 export interface LLMConfig {
   provider: "openai" | "openai-compatible" | "anthropic" | "ollama" | "custom";
   model: string;
   apiKey: string;
   baseURL?: string;
-  temperature?: number;
-  maxTokens?: number;
-  /** Provider-specific extra body params (thinking, reasoning_effort, etc.) */
-  options?: Record<string, unknown>;
-  /** Provider-specific extra HTTP headers */
-  headers?: Record<string, string>;
+  /** Advanced request params. `headers` goes to HTTP headers; other keys go to the request body. */
+  request?: LLMRequestConfig;
 }
 
 /** A single learned skill entry */

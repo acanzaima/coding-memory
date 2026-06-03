@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline'
 import { select } from '../cli/select.js'
 import { isAbsolute, resolve } from 'node:path'
 import { expandHomePath, readConfig, updateConfig } from '../config/manager.js'
-import { readModels, upsertModel, switchModel, removeModel, listModels, getCurrentModel } from '../config/models.js'
+import { consumeModelsMigrationNotice, readModels, upsertModel, switchModel, removeModel, listModels, getCurrentModel } from '../config/models.js'
 import { providerPresets, getBaseURL, getEnvVarName } from '../llm/providers.js'
 import { testConnection } from '../llm/client.js'
 import type { LLMConfig } from '../types.js'
@@ -135,16 +135,14 @@ async function interactiveSetup(): Promise<void> {
   const headers = await extraHeaders(provider.id, rl)
   if (headers === null) { rl.close(); return }
 
-  const llmConfig: LLMConfig = {
+  const llmConfig = createModelConfigDefaults({
+    providerId: provider.id,
     provider: provider.provider,
     model,
     apiKey,
     baseURL: baseURL || undefined,
-    temperature: 0.3,
-    maxTokens: 4096,
-    options: defaultOptions(provider.id),
     headers,
-  }
+  })
   upsertModel(finalName, llmConfig)
 
   console.log(`${c.green}${icon.ok}${c.reset} ${c.bold}Model saved${c.reset}`)
@@ -152,10 +150,7 @@ async function interactiveSetup(): Promise<void> {
   console.log(`   ${c.dim}Provider: ${c.reset}${provider.name}`)
   console.log(`   ${c.dim}Model:    ${c.reset}${model}`)
   console.log(`   ${c.dim}Base URL: ${c.reset}${baseURL || '(default)'}`)
-  if (llmConfig.headers && Object.keys(llmConfig.headers).length > 0) {
-    console.log(`   ${c.dim}Headers:  ${c.reset}${Object.keys(llmConfig.headers).join(', ')}`)
-  }
-  console.log(`   ${c.dim}Options:  ${c.reset}${JSON.stringify(llmConfig.options)} ${c.dim}(edit ~/.coding-memory/models.json for extra parameters)${c.reset}`)
+  console.log(`   ${c.dim}Request:  ${c.reset}${JSON.stringify(llmConfig.request || {})} ${c.dim}(edit ~/.coding-memory/models.json for advanced parameters)${c.reset}`)
 
   if (existing.length > 0) {
     const mkCurrent = await ask(rl, `\n  ${c.yellow}Make this the active model?${c.reset} ${c.dim}[Y/n]${c.reset}: `)
@@ -171,6 +166,7 @@ async function interactiveSetup(): Promise<void> {
 
 function showModelList(): void {
   const cfg = readModels(); const models = listModels()
+  printModelMigrationNotice()
   console.log(`\n${c.bold}${c.cyan}  Configured models${c.reset}\n`)
   if (models.length === 0) { console.log(`  ${c.dim}No models configured yet.${c.reset}\n  Run ${c.cyan}coding-memory config${c.reset} to add one.\n`); return }
   for (const m of models) {
@@ -210,15 +206,30 @@ async function doTestConnection(config: LLMConfig): Promise<void> {
   else { console.log(`${c.red}${icon.err} Failed${c.reset}`); console.log(`  ${c.dim}${result.message.slice(0, 120)}${c.reset}`) }
 }
 
-/** Default visible provider-specific options. Users can edit models.json freely. */
-function defaultOptions(providerId: string): Record<string, unknown> {
-  if (providerId === 'deepseek') {
-    return {
-      thinking: { type: 'enabled' },
-      reasoning_effort: 'high',
-    }
+/** Default minimal model config. Users can edit request for advanced parameters. */
+export function createModelConfigDefaults(input: {
+  providerId: string
+  provider: LLMConfig['provider']
+  model: string
+  apiKey: string
+  baseURL?: string
+  headers?: Record<string, string>
+}): LLMConfig {
+  const llmConfig: LLMConfig = {
+    provider: input.provider,
+    model: input.model,
+    apiKey: input.apiKey,
+    baseURL: input.baseURL,
+    request: input.headers ? { headers: input.headers } : {},
   }
-  return {}
+  return llmConfig
+}
+
+function printModelMigrationNotice(): void {
+  const migration = consumeModelsMigrationNotice()
+  if (!migration.migrated) return
+  console.log(`${c.yellow}${icon.arrow}${c.reset} models.json upgraded to request-based advanced parameters.`)
+  console.log(`  ${c.dim}Migrated: ${migration.modelNames.join(', ') || '(unknown)'}. Legacy temperature/maxTokens/options/headers were copied into request.${c.reset}`)
 }
 
 async function extraHeaders(

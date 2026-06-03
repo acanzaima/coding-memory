@@ -311,18 +311,24 @@ coding-memory config --dir D:/AI/memories
       "model": "deepseek-v4-pro",
       "apiKey": "sk-...",
       "baseURL": "https://api.deepseek.com",
-      "temperature": 0.3,
-      "maxTokens": 4096,
-      "options": {
+      "request": {
         "thinking": { "type": "enabled" },
-        "reasoning_effort": "high"
+        "reasoning_effort": "high",
+        "max_tokens": 8192
       }
+    },
+    "kimi": {
+      "provider": "openai-compatible",
+      "model": "kimi-k2.5",
+      "apiKey": "sk-...",
+      "baseURL": "https://api.moonshot.cn/v1",
+      "request": {}
     }
   }
 }
 ```
 
-`options` 是模型服务的高级参数扩展区，例如 `thinking`、`reasoning_effort` 等；coding-memory 只会透传，不会在 `learn` 中替你改写。少数服务需要额外请求头，可在同一条模型配置里添加 `headers`。
+`config` 命令只写入可 `test`、可 `learn` 的最小模型配置，并保留 `request` 作为高级配置入口。`models.json` 是请求参数的最高优先级来源：如果 `request` 中显式配置了 `temperature`、`max_tokens`、`thinking`、`reasoning_effort` 等字段，`learn` 和 `test` 都会优先使用这些值；内部阶段参数只在对应字段缺失时作为请求级 fallback。`request.headers` 会进入 HTTP 请求头，`request` 下除 `headers` 外的字段会直接合并进请求 body。升级旧版本时，旧的 `temperature`、`maxTokens`、`options`、`headers` 会被复制到 `request` 并写回 `models.json`，命令窗口会提示这次迁移。
 
 ### `lock.json` — Skill 追踪
 

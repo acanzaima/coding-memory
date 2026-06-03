@@ -131,12 +131,21 @@ coding-memory config --dir D:/AI/memories
 - Azure OpenAI、AWS Bedrock、Google Vertex AI、Cohere 等需要专用路径、专用鉴权或非 OpenAI Chat Completions 兼容请求的服务，不作为一键预设；如用户通过代理网关、私有服务或第三方兼容接口暴露为 OpenAI-compatible endpoint，应选择“自定义兼容接口”。
 - 默认模型优先选择官方文档、平台模型列表或稳定公开接口中能确认的模型 ID；容易过期的快照、已下线模型和账号强绑定 endpoint 不作为默认值。
 - 豆包 Ark 保留默认 Base URL，但模型参数通常来自控制台 endpoint/model ID，因此预设不提供默认模型，配置时要求用户手填。
-- W&B Inference 需要项目维度 header，配置向导会收集 entity/project，并通过 `headers.OpenAI-Project` 写入模型配置。
+- W&B Inference 需要项目维度 header，配置向导会收集 entity/project，并通过 `request.headers.OpenAI-Project` 写入模型配置。
 
-`LLMConfig` 中有两个扩展点：
+`LLMConfig` 中只有一个高级扩展点：
 
-- `options`：透传到请求 body，用于 `thinking`、`reasoning_effort` 等 provider-specific 参数。
-- `headers`：透传到 HTTP 请求头，用于 W&B 这类需要额外 header 的兼容服务。
+- `request`：统一管理模型请求参数。`request.headers` 透传到 HTTP 请求头；`request` 下除 `headers` 外的字段会直接合并到请求 body，用于 `temperature`、`max_tokens`、`thinking`、`reasoning_effort` 等 provider-specific 参数。
+
+请求参数优先级遵循“用户配置优先”：
+
+- `coding-memory config` 只写入能完成 `test` 和 `learn` 的最小模型配置，并默认保留 `request: {}` 作为高级参数入口。
+- `request` 中显式设置的 body 参数优先于生成阶段传入的默认值。
+- 请求 body 中的基础字段会先合成，随后再合并 `request` body 参数，因此用户放在 `request` 里的 provider-specific 同名字段拥有最终优先级。
+- 阶段级 `temperature`、`maxTokens` 会转换为请求级 fallback；如果 `request.temperature` 或 `request.max_tokens` 已存在，则以 `request` 为准。
+- 对官方 Moonshot/Kimi 这类固定温度接口，若 `request` 没有显式设置 `temperature`，请求层不透传阶段级 temperature，避免服务端因默认温度值报错。
+- 旧版 `models.json` 中的顶层 `temperature`、`maxTokens`、`options`、`headers` 只在读取时做一次性迁移：复制到 `request.temperature`、`request.max_tokens`、`request.*`、`request.headers` 并写回文件，同时在命令窗口提示用户；请求层不再读取旧字段。
+- `coding-memory test` 也遵循相同规则；只有 DeepSeek 且用户没有显式设置 `request.thinking` 时，测试 ping 才会临时设置 `thinking: disabled`，避免连接测试消耗 reasoning 预算。
 
 ## 产物治理
 
