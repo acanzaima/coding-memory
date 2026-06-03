@@ -9,6 +9,7 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { listSkills } from "./merger.js";
+import { formatLocalTimestamp } from "./time.js";
 import type { SkillsLock } from "../types.js";
 import type { EvidenceReport } from "./evidence.js";
 
@@ -375,7 +376,7 @@ export function generateQualityReport(
   }
   void skillDir;
   const data = collectOverviewData(lock, refDir);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = formatLocalTimestamp();
   const totalRawRules = sumTypes(data, (td) => td.rawTypeRuleCount);
   const totalVisibleRules = sumTypes(data, (td) => td.typeRules.length);
   const totalMissingTemplates = sumTypes(
@@ -477,7 +478,7 @@ function generateQualityReportEn(
 ): string {
   void skillDir;
   const data = collectOverviewData(lock, refDir);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = formatLocalTimestamp();
   const totalRawRules = sumTypes(data, (td) => td.rawTypeRuleCount);
   const totalVisibleRules = sumTypes(data, (td) => td.typeRules.length);
   const totalMissingTemplates = sumTypes(

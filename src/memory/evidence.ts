@@ -6,6 +6,7 @@ import type {
   EvidenceReport,
   EvidenceRule,
 } from "./evidence/types.js";
+import { formatLocalTimestamp } from "./time.js";
 
 type OutputLanguage = "zh" | "en";
 
@@ -98,10 +99,11 @@ export function renderEvidenceMarkdown(
   outputLanguage: OutputLanguage = "zh",
 ): string {
   if (outputLanguage === "en") return renderEvidenceMarkdownEn(report);
+  const generatedAt = formatLocalTimestamp(report.generatedAt);
   const lines = [
     `# 证据 · ${report.projectType}`,
     "",
-    `生成时间：${report.generatedAt}`,
+    `生成时间：${generatedAt}`,
     "",
     "## 摘要",
     "",
@@ -129,10 +131,11 @@ export function renderEvidenceMarkdown(
 }
 
 function renderEvidenceMarkdownEn(report: EvidenceReport): string {
+  const generatedAt = formatLocalTimestamp(report.generatedAt);
   const lines = [
     `# Evidence · ${report.projectType}`,
     "",
-    `Generated at: ${report.generatedAt}`,
+    `Generated at: ${generatedAt}`,
     "",
     "## Summary",
     "",

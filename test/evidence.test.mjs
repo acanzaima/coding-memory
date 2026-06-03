@@ -236,6 +236,8 @@ assert.ok(ids.includes("ci-workflows"));
 
 const markdown = renderEvidenceMarkdown(report);
 assert.match(markdown, /证据表/);
+assert.match(markdown, /生成时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT[+-]\d/);
+assert.doesNotMatch(markdown, /生成时间：.*T.*Z/);
 assert.match(markdown, /src\/api\/user\/index\.ts/);
 assert.match(markdown, /前端接口调用集中通过 API\/facade 文件封装/);
 
@@ -342,6 +344,8 @@ try {
   );
 
   assert.match(quality, /Evidence 证据项/);
+  assert.match(quality, /生成时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT[+-]\d/);
+  assert.doesNotMatch(quality, /生成时间：.*T.*Z/);
   assert.match(quality, /\| vue3 \| 1 \|/);
   assert.match(quality, /PASS：所有项目类型都存在 evidence 报告/);
   assert.match(quality, /已提取确定性证据/);
@@ -371,6 +375,8 @@ try {
     "en",
   );
   assert.match(qualityEn, /Evidence items:/);
+  assert.match(qualityEn, /Generated at: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} GMT[+-]\d/);
+  assert.doesNotMatch(qualityEn, /Generated at: .*T.*Z/);
   assert.match(qualityEn, /PASS: evidence reports are present/);
 } finally {
   rmSync(tempRoot, { recursive: true, force: true });
