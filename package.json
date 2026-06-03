@@ -1,6 +1,6 @@
 {
   "name": "coding-memory",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "🧠 Turn your codebase into AI-readable skills. Scan project files, learn patterns, and generate SKILL.md memories for AI coding agents.",
   "type": "module",
   "main": "./dist/index.js",
